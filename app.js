@@ -1,7 +1,7 @@
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-// --- DUAL CANVAS SETUP (0 LATENCY & HIGHLIGHTER FIX) ---
+// --- DUAL CANVAS SETUP (FOR 0 LATENCY & HIGHLIGHTER FIX) ---
 const draftCanvas = document.createElement('canvas');
 draftCanvas.id = 'draftBoard';
 draftCanvas.style.position = 'absolute';
@@ -115,77 +115,61 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 
 // --- MULTI-TOUCH & DRAWING ENGINE ---
 
-// If 3 or more touches exist simultaneously, treat it as an IFP Palm Eraser
-function isPalmErasing() {
-  return activePointers.size >= 3;
-}
+let needsDraftRender = false;
+let currentPalmCenter = null;
 
-function executePalmEraser() {
-  // Calculate the center (centroid) of the palm/fist
+// PROXIMITY PALM DETECTION: 6+ touches clustered together
+function checkPalmStatus() {
+  if (activePointers.size < 6) return null;
+
   let cx = 0, cy = 0;
+  let pts = [];
   activePointers.forEach(p => {
     const lastPt = p.points[p.points.length - 1];
     cx += lastPt.x;
     cy += lastPt.y;
+    pts.push(lastPt);
   });
-  cx /= activePointers.size;
-  cy /= activePointers.size;
+  cx /= pts.length;
+  cy /= pts.length;
 
-  const eraserRadius = 75; // Creates a 150px wide eraser area
+  // Max distance between the centroid and any single finger to be considered a palm/fist
+  const MAX_RADIUS = 300; 
+  for (let pt of pts) {
+    if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
+      return null; // Touches are too spread out (likely multiple people drawing)
+    }
+  }
 
-  // Erase the physical ink on the main canvas
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.beginPath();
-  ctx.arc(cx, cy, eraserRadius, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Draw the visual gray circle feedback on the draft canvas
-  draftCtx.clearRect(0, 0, canvas.width, canvas.height);
-  draftCtx.globalCompositeOperation = 'source-over';
-  draftCtx.beginPath();
-  draftCtx.arc(cx, cy, eraserRadius, 0, Math.PI * 2);
-  draftCtx.fillStyle = 'rgba(150, 150, 150, 0.4)';
-  draftCtx.fill();
-  draftCtx.lineWidth = 2;
-  draftCtx.strokeStyle = '#333';
-  draftCtx.stroke();
+  // If we reach here, it's a palm. Invalidate these strokes so they don't draw ink
+  activePointers.forEach(p => p.isInvalidated = true);
+  return { x: cx, y: cy };
 }
 
-function executeNormalDraw() {
-  draftCtx.clearRect(0, 0, canvas.width, canvas.height);
+function drawFreehandSegment(stroke) {
+  if (stroke.points.length < 3 || stroke.isInvalidated) return;
+  const pts = stroke.points;
+  const last2 = pts[pts.length - 3];
+  const last1 = pts[pts.length - 2];
+  const curr = pts[pts.length - 1];
 
-  activePointers.forEach(stroke => {
-    if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
-      // 0-LATENCY SMOOTHING: Incrementally draw bezier curves to the main canvas
-      if (stroke.points.length >= 3) {
-        const pts = stroke.points;
-        const last2 = pts[pts.length - 3];
-        const last1 = pts[pts.length - 2];
-        const curr = pts[pts.length - 1];
+  const mid1 = { x: (last2.x + last1.x) / 2, y: (last2.y + last1.y) / 2 };
+  const mid2 = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
 
-        // Calculate midpoints for smooth curving
-        const mid1 = { x: (last2.x + last1.x) / 2, y: (last2.y + last1.y) / 2 };
-        const mid2 = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
+  ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = stroke.color;
+  ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
-        ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
-
-        ctx.beginPath();
-        ctx.moveTo(mid1.x, mid1.y);
-        ctx.quadraticCurveTo(last1.x, last1.y, mid2.x, mid2.y);
-        ctx.stroke();
-      }
-    } else {
-      // Draw active shapes and highlighters to the transparent draft layer
-      drawShapeOnContext(draftCtx, stroke);
-    }
-  });
+  ctx.beginPath();
+  ctx.moveTo(mid1.x, mid1.y);
+  ctx.quadraticCurveTo(last1.x, last1.y, mid2.x, mid2.y);
+  ctx.stroke();
 }
 
 function drawShapeOnContext(targetCtx, stroke) {
+  if (stroke.isInvalidated) return;
   targetCtx.lineCap = 'round';
   targetCtx.lineJoin = 'round';
   targetCtx.strokeStyle = stroke.color;
@@ -207,7 +191,6 @@ function drawShapeOnContext(targetCtx, stroke) {
     const radius = Math.hypot(curr.x - start.x, curr.y - start.y);
     targetCtx.arc(start.x, start.y, radius, 0, Math.PI * 2);
   } else if (stroke.tool === 'highlighter') {
-    // Smoothes highlighter path
     targetCtx.moveTo(start.x, start.y);
     for (let i = 1; i < pts.length - 1; i++) {
       const cx = (pts[i].x + pts[i+1].x) / 2;
@@ -220,7 +203,7 @@ function drawShapeOnContext(targetCtx, stroke) {
 }
 
 function stampShapeToMain(stroke) {
-  // Create an off-screen canvas to perfectly apply highlighter blend modes without overlap bugs
+  if (stroke.isInvalidated) return;
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = canvas.width;
   tempCanvas.height = canvas.height;
@@ -241,33 +224,59 @@ function stampShapeToMain(stroke) {
   ctx.restore();
 }
 
+// --- OPTIMIZED RENDER LOOP (DECOUPLED FROM EVENTS) ---
+function renderDraftLayer() {
+  if (needsDraftRender) {
+    draftCtx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw visual indicator for palm eraser
+    if (currentPalmCenter) {
+      draftCtx.globalCompositeOperation = 'source-over';
+      draftCtx.beginPath();
+      draftCtx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
+      draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
+      draftCtx.fill();
+    } else {
+      // Draw active shapes and highlighters
+      activePointers.forEach(stroke => {
+        if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
+          drawShapeOnContext(draftCtx, stroke);
+        }
+      });
+    }
+    needsDraftRender = false;
+  }
+  requestAnimationFrame(renderDraftLayer);
+}
+requestAnimationFrame(renderDraftLayer);
+
 // --- UNIFIED POINTER EVENT LISTENERS ---
-// Using pointer events natively supports Multi-Touch, Active Styluses, and Mouse seamlessly
 
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
   const tool = e.pointerType === 'eraser' ? 'eraser' : currentTool;
 
-  // Initialize tracking for this specific touch/pen
   activePointers.set(e.pointerId, {
     tool: tool,
     color: currentColor,
     size: currentSize,
-    points: [coords]
+    points: [coords],
+    isInvalidated: false
   });
 
-  // Draw an initial dot if tapping with a pen
-  if (['pen', 'marker', 'eraser'].includes(tool) && !isPalmErasing()) {
+  currentPalmCenter = checkPalmStatus();
+
+  // Draw initial dot if not palm erasing
+  if (['pen', 'marker', 'eraser'].includes(tool) && !currentPalmCenter) {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
-    ctx.lineCap = 'round';
     ctx.fillStyle = currentColor;
     ctx.beginPath();
     ctx.arc(coords.x, coords.y, (tool === 'eraser' ? currentSize * 8 : currentSize) / 2, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  if (isPalmErasing()) executePalmEraser();
+  if (currentPalmCenter) needsDraftRender = true;
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -275,12 +284,26 @@ canvas.addEventListener('pointermove', (e) => {
   if (!activePointers.has(e.pointerId)) return;
 
   const stroke = activePointers.get(e.pointerId);
-  stroke.points.push(getCoordinates(e.clientX, e.clientY));
-
-  if (isPalmErasing()) {
-    executePalmEraser();
-  } else {
-    executeNormalDraw();
+  currentPalmCenter = checkPalmStatus();
+  
+  // Use Coalesced Events for perfect zero-latency curves
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  
+  for (let event of events) {
+    stroke.points.push(getCoordinates(event.clientX, event.clientY));
+    
+    if (currentPalmCenter) {
+      // Physically erase on the main canvas
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
+      ctx.fill();
+      needsDraftRender = true;
+    } else if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
+      drawFreehandSegment(stroke);
+    } else {
+      needsDraftRender = true;
+    }
   }
 });
 
@@ -290,18 +313,8 @@ function handlePointerEnd(e) {
 
   const stroke = activePointers.get(e.pointerId);
 
-  if (isPalmErasing()) {
-    activePointers.delete(e.pointerId);
-    if (activePointers.size < 3) {
-      // Palm lifted, clear the visual eraser circle
-      draftCtx.clearRect(0, 0, canvas.width, canvas.height);
-      saveState();
-    }
-    return;
-  }
-
-  // Tie off freehand strokes with a clean end cap
-  if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2) {
+  // Tie off freehand strokes cleanly
+  if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2 && !stroke.isInvalidated) {
     const pts = stroke.points;
     const last1 = pts[pts.length - 2];
     const curr = pts[pts.length - 1];
@@ -324,12 +337,11 @@ function handlePointerEnd(e) {
   }
 
   activePointers.delete(e.pointerId);
+  currentPalmCenter = checkPalmStatus(); // Re-evaluate if palm is still active
 
   if (activePointers.size === 0) {
-    draftCtx.clearRect(0, 0, canvas.width, canvas.height);
+    needsDraftRender = true; // Clear the draft canvas
     saveState(); // Commit stroke to undo history
-  } else {
-    executeNormalDraw(); // Redraw any other people's shapes that are still active
   }
 }
 
