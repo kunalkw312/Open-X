@@ -49,6 +49,23 @@ window.addEventListener('resize', () => {
 
 initCanvas();
 
+// --- COORDINATE MAPPING (THE FIX FOR THE OFFSET) ---
+// This translates the raw screen coordinates into exact canvas coordinates,
+// accounting for any browser toolbars, DPI scaling, and CSS layout shifts.
+function getCoordinates(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  
+  // Calculate the scale in case the canvas CSS size differs from internal pixel size
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  
+  return {
+    x: ((clientX - rect.left) * scaleX) / dpr,
+    y: ((clientY - rect.top) * scaleY) / dpr
+  };
+}
+
 // --- UI / TOOLBAR LISTENERS ---
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
@@ -195,13 +212,15 @@ function handleEnd() {
 // --- WINDOWS / MOUSE / ACTIVE STYLUS LOGIC ---
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') return; 
-  handleStart(e.clientX, e.clientY);
+  const { x, y } = getCoordinates(e.clientX, e.clientY);
+  handleStart(x, y);
 });
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'touch') return; 
   const isHardwareEraser = e.pointerType === 'eraser';
-  handleMove(e.clientX, e.clientY, isHardwareEraser);
+  const { x, y } = getCoordinates(e.clientX, e.clientY);
+  handleMove(x, y, isHardwareEraser);
 });
 
 canvas.addEventListener('pointerup', handleEnd);
@@ -209,12 +228,12 @@ canvas.addEventListener('pointercancel', handleEnd);
 
 // --- ANDROID IFP / IR TOUCH LOGIC ---
 function getTouchCenter(touches) {
-  let x = 0, y = 0;
+  let cx = 0, cy = 0;
   for (let i = 0; i < touches.length; i++) {
-    x += touches[i].clientX;
-    y += touches[i].clientY;
+    cx += touches[i].clientX;
+    cy += touches[i].clientY;
   }
-  return { x: x / touches.length, y: y / touches.length };
+  return getCoordinates(cx / touches.length, cy / touches.length);
 }
 
 canvas.addEventListener('touchstart', (e) => {
@@ -222,11 +241,12 @@ canvas.addEventListener('touchstart', (e) => {
   
   if (e.touches.length >= 3) {
     isPalmErasing = true;
-    const center = getTouchCenter(e.touches);
-    handleStart(center.x, center.y);
+    const { x, y } = getTouchCenter(e.touches);
+    handleStart(x, y);
   } else if (e.touches.length === 1) {
     isPalmErasing = false;
-    handleStart(e.touches[0].clientX, e.touches[0].clientY);
+    const { x, y } = getCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+    handleStart(x, y);
   }
 }, { passive: false });
 
@@ -235,10 +255,11 @@ canvas.addEventListener('touchmove', (e) => {
 
   if (e.touches.length >= 3) {
     isPalmErasing = true;
-    const center = getTouchCenter(e.touches);
-    handleMove(center.x, center.y, true);
+    const { x, y } = getTouchCenter(e.touches);
+    handleMove(x, y, true);
   } else if (e.touches.length === 1 && !isPalmErasing) {
-    handleMove(e.touches[0].clientX, e.touches[0].clientY, false);
+    const { x, y } = getCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+    handleMove(x, y, false);
   }
 }, { passive: false });
 
