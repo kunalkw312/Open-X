@@ -141,7 +141,7 @@ let currentPalmCenter = null;
 
 // PROXIMITY PALM DETECTION: 4+ touches within 150px
 function checkPalmStatus() {
-  if (activePointers.size < 4) return null;
+  if (activePointers.size < 5) return null;
 
   let cx = 0, cy = 0;
   let pts = [];
@@ -154,7 +154,7 @@ function checkPalmStatus() {
   cx /= pts.length;
   cy /= pts.length;
 
-  const MAX_RADIUS = 150; 
+  const MAX_RADIUS = 100; 
   for (let pt of pts) {
     if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
       return null; // Touches are too spread out (multiple users)
