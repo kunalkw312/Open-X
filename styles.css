@@ -11,48 +11,58 @@ body, html {
   height: 100%;
   overflow: hidden;
   background-color: #ffffff;
-  font-family: sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 #board {
   display: block;
-  width: 100vw;
-  height: 100vh;
   position: absolute;
   top: 0;
   left: 0;
   z-index: 1;
+  /* CRITICAL: Prevents Android from consuming palm touches for scrolling/swiping */
   touch-action: none; 
   cursor: crosshair;
 }
 
-/* Floating Toolbar */
+/* Sleek Single-Line Floating Toolbar */
 #toolbar {
   position: absolute;
-  bottom: 30px;
+  bottom: 25px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
-  flex-wrap: wrap; /* CRITICAL: Allows buttons to wrap on mobile */
-  justify-content: center;
-  gap: 15px;
-  background: #ffffff;
-  padding: 15px 25px;
-  border-radius: 20px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-  width: 95vw; /* Prevents edge-to-edge stretching */
-  max-width: 850px;
+  flex-wrap: nowrap; /* Forces a single line */
+  align-items: center;
+  gap: 10px;
+  
+  /* Modern frosted glass pill look */
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 10px 15px;
+  border-radius: 50px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  
+  /* Allows horizontal scrolling on mobile without breaking layout */
+  max-width: 95vw;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hides the scrollbar for a cleaner look on mobile */
+#toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .tool-group {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  border-right: 3px solid #eeeeee;
-  padding-right: 15px;
+  gap: 6px;
+  border-right: 2px solid #eaeaea;
+  padding-right: 12px;
+  padding-left: 2px;
 }
 
 .tool-group:last-child {
@@ -60,41 +70,65 @@ body, html {
   padding-right: 0;
 }
 
+/* Circular, elegant icon buttons */
 button {
-  font-size: 28px;
-  padding: 10px 15px;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
   border: none;
-  border-radius: 12px;
-  background: #f0f4f8;
+  border-radius: 50%;
+  background: transparent;
+  color: #555555;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 60px;
-  min-height: 60px;
-  font-weight: bold;
-  color: #333;
+  flex-shrink: 0; /* Prevents buttons from squishing */
+}
+
+button svg {
+  width: 22px;
+  height: 22px;
+}
+
+button:hover {
+  background: #f0f4f8;
+  color: #111111;
 }
 
 button:active {
-  transform: scale(0.95);
+  transform: scale(0.92);
 }
 
 button.active {
   background: #007bff;
-  color: white;
-  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
 }
 
+/* Specific Action Colors */
+button.danger:hover {
+  background: #ffebee;
+  color: #d32f2f;
+}
+
+button.success:hover {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+/* Color Picker Styling */
 #colorPicker {
-  width: 50px;
-  height: 50px;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 12px;
+  border-radius: 50%;
   cursor: pointer;
   padding: 0;
   background: transparent;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 #colorPicker::-webkit-color-swatch-wrapper {
@@ -102,51 +136,16 @@ button.active {
 }
 
 #colorPicker::-webkit-color-swatch {
-  border: 2px solid #ccc;
-  border-radius: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 50%;
 }
 
+/* Size Slider */
 #sizePicker {
-  width: 150px;
-  height: 40px;
+  width: 100px;
+  height: 36px;
   cursor: pointer;
-}
-
-#btnClear {
-  background: #ffebee;
-  color: #d32f2f;
-}
-
-#btnExport {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-
-/* Mobile specific adjustments */
-@media (max-width: 768px) {
-  #toolbar {
-    bottom: 10px;
-    padding: 10px;
-    gap: 10px;
-    border-radius: 15px;
-  }
-  .tool-group {
-    border-right: none;
-    border-bottom: 2px solid #eeeeee;
-    padding-right: 0;
-    padding-bottom: 10px;
-  }
-  .tool-group:last-child {
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-  button {
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 20px;
-    padding: 8px 12px;
-  }
-  #sizePicker {
-    width: 100px;
-  }
+  margin: 0 5px;
+  flex-shrink: 0;
+  accent-color: #007bff;
 }
