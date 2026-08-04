@@ -154,7 +154,7 @@ function checkPalmStatus() {
   cx /= pts.length;
   cy /= pts.length;
 
-  const MAX_RADIUS = 100; 
+  const MAX_RADIUS = 125; 
   for (let pt of pts) {
     if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
       return null; // Touches are too spread out (multiple users)
