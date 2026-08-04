@@ -1,5 +1,5 @@
 // Bump the version number to force the browser to update the cache
-const CACHE_NAME = 'smartboard-cache-v2'; 
+const CACHE_NAME = 'smartboard-cache-v3'; 
 
 
 const ASSETS_TO_CACHE = [
