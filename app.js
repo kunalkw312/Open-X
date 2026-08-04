@@ -1,7 +1,8 @@
 const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
+// Removed willReadFrequently because we are moving to GPU-accelerated undo states
+const ctx = canvas.getContext('2d');
 
-// --- DUAL CANVAS SETUP (FOR 0 LATENCY & HIGHLIGHTER FIX) ---
+// --- DUAL CANVAS SETUP ---
 const draftCanvas = document.createElement('canvas');
 draftCanvas.id = 'draftBoard';
 draftCanvas.style.position = 'absolute';
@@ -9,7 +10,7 @@ draftCanvas.style.top = '0';
 draftCanvas.style.left = '0';
 draftCanvas.style.zIndex = '2'; 
 draftCanvas.style.touchAction = 'none';
-draftCanvas.style.pointerEvents = 'none'; // Passes touches to main canvas
+draftCanvas.style.pointerEvents = 'none'; 
 canvas.parentNode.appendChild(draftCanvas);
 const draftCtx = draftCanvas.getContext('2d');
 
@@ -18,11 +19,12 @@ let currentTool = 'pen';
 let currentColor = '#000000';
 let currentSize = 4;
 
-// Tracks simultaneous touches for multi-user drawing
 const activePointers = new Map(); 
 
+// GPU-Accelerated Undo/Redo using offscreen canvases instead of heavy ImageData
 let undoStack = [];
 let redoStack = [];
+const MAX_HISTORY = 15;
 
 // --- DPI SCALING ---
 function initCanvas() {
@@ -46,15 +48,13 @@ function initCanvas() {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   
+  // Clear history on resize to prevent skewed states
+  undoStack = [];
+  redoStack = [];
   saveState();
 }
 
-window.addEventListener('resize', () => {
-  const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  initCanvas();
-  ctx.putImageData(temp, 0, 0);
-});
-
+window.addEventListener('resize', initCanvas);
 initCanvas();
 
 // --- EXACT COORDINATE MAPPING ---
@@ -91,17 +91,38 @@ document.getElementById('btnExport').addEventListener('click', () => {
   link.click();
 });
 
-// --- UNDO / REDO ---
+// --- ZERO-LATENCY UNDO / REDO ---
+// Uses offscreen canvases to copy GPU to GPU instantly, avoiding CPU read stalls
 function saveState() {
-  if (undoStack.length >= 20) undoStack.shift(); 
-  undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  let cacheCanvas;
+  if (undoStack.length >= MAX_HISTORY) {
+    cacheCanvas = undoStack.shift(); // Reuse oldest canvas memory
+  } else {
+    cacheCanvas = document.createElement('canvas');
+    cacheCanvas.width = canvas.width;
+    cacheCanvas.height = canvas.height;
+  }
+  
+  const cacheCtx = cacheCanvas.getContext('2d');
+  cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
+  cacheCtx.drawImage(canvas, 0, 0);
+  
+  undoStack.push(cacheCanvas);
   redoStack = []; 
+}
+
+function restoreState(sourceCanvas) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(sourceCanvas, 0, 0);
+  ctx.restore();
 }
 
 document.getElementById('btnUndo').addEventListener('click', () => {
   if (undoStack.length > 1) {
     redoStack.push(undoStack.pop());
-    ctx.putImageData(undoStack[undoStack.length - 1], 0, 0);
+    restoreState(undoStack[undoStack.length - 1]);
   }
 });
 
@@ -109,7 +130,7 @@ document.getElementById('btnRedo').addEventListener('click', () => {
   if (redoStack.length > 0) {
     const nextState = redoStack.pop();
     undoStack.push(nextState);
-    ctx.putImageData(nextState, 0, 0);
+    restoreState(nextState);
   }
 });
 
@@ -118,9 +139,9 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 let needsDraftRender = false;
 let currentPalmCenter = null;
 
-// PROXIMITY PALM DETECTION: 6+ touches clustered together
+// PROXIMITY PALM DETECTION: 5+ touches within 150px
 function checkPalmStatus() {
-  if (activePointers.size < 6) return null;
+  if (activePointers.size < 5) return null;
 
   let cx = 0, cy = 0;
   let pts = [];
@@ -133,28 +154,25 @@ function checkPalmStatus() {
   cx /= pts.length;
   cy /= pts.length;
 
-  // Max distance between the centroid and any single finger to be considered a palm/fist
-  const MAX_RADIUS = 300; 
+  const MAX_RADIUS = 150; 
   for (let pt of pts) {
     if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
-      return null; // Touches are too spread out (likely multiple people drawing)
+      return null; // Touches are too spread out (multiple users)
     }
   }
 
-  // If we reach here, it's a palm. Invalidate these strokes so they don't draw ink
+  // It's a palm. Invalidate these strokes so they don't draw ink.
   activePointers.forEach(p => p.isInvalidated = true);
   return { x: cx, y: cy };
 }
 
-function drawFreehandSegment(stroke) {
-  if (stroke.points.length < 3 || stroke.isInvalidated) return;
+// BATCHED BEZIER CURVES: Drastically reduces `stroke()` calls for 0 latency
+function drawBatchedFreehand(stroke) {
+  if (stroke.isInvalidated || stroke.points.length < 3) return;
+  
   const pts = stroke.points;
-  const last2 = pts[pts.length - 3];
-  const last1 = pts[pts.length - 2];
-  const curr = pts[pts.length - 1];
-
-  const mid1 = { x: (last2.x + last1.x) / 2, y: (last2.y + last1.y) / 2 };
-  const mid2 = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
+  let i = stroke.lastRenderedIndex;
+  if (i >= pts.length - 1) return;
 
   ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
   ctx.lineCap = 'round';
@@ -163,9 +181,20 @@ function drawFreehandSegment(stroke) {
   ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
   ctx.beginPath();
-  ctx.moveTo(mid1.x, mid1.y);
-  ctx.quadraticCurveTo(last1.x, last1.y, mid2.x, mid2.y);
+  
+  // Start from the midpoint of the last drawn segment
+  const p0 = pts[i - 1];
+  const p1 = pts[i];
+  ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+
+  // Curve through all new coalesced points
+  for (; i < pts.length - 1; i++) {
+    const mid = { x: (pts[i].x + pts[i+1].x) / 2, y: (pts[i].y + pts[i+1].y) / 2 };
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mid.x, mid.y);
+  }
   ctx.stroke();
+  
+  stroke.lastRenderedIndex = pts.length - 1;
 }
 
 function drawShapeOnContext(targetCtx, stroke) {
@@ -224,20 +253,18 @@ function stampShapeToMain(stroke) {
   ctx.restore();
 }
 
-// --- OPTIMIZED RENDER LOOP (DECOUPLED FROM EVENTS) ---
+// --- OPTIMIZED DRAFT RENDER LOOP ---
 function renderDraftLayer() {
   if (needsDraftRender) {
     draftCtx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw visual indicator for palm eraser
     if (currentPalmCenter) {
       draftCtx.globalCompositeOperation = 'source-over';
       draftCtx.beginPath();
-      draftCtx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
+      draftCtx.arc(currentPalmCenter.x, currentPalmCenter.y, 100, 0, Math.PI * 2);
       draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
       draftCtx.fill();
     } else {
-      // Draw active shapes and highlighters
       activePointers.forEach(stroke => {
         if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
           drawShapeOnContext(draftCtx, stroke);
@@ -262,12 +289,12 @@ canvas.addEventListener('pointerdown', (e) => {
     color: currentColor,
     size: currentSize,
     points: [coords],
+    lastRenderedIndex: 1,
     isInvalidated: false
   });
 
   currentPalmCenter = checkPalmStatus();
 
-  // Draw initial dot if not palm erasing
   if (['pen', 'marker', 'eraser'].includes(tool) && !currentPalmCenter) {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.fillStyle = currentColor;
@@ -286,24 +313,23 @@ canvas.addEventListener('pointermove', (e) => {
   const stroke = activePointers.get(e.pointerId);
   currentPalmCenter = checkPalmStatus();
   
-  // Use Coalesced Events for perfect zero-latency curves
+  // Use Coalesced Events to capture micro-movements between screen frames
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   
   for (let event of events) {
     stroke.points.push(getCoordinates(event.clientX, event.clientY));
-    
-    if (currentPalmCenter) {
-      // Physically erase on the main canvas
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
-      ctx.fill();
-      needsDraftRender = true;
-    } else if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
-      drawFreehandSegment(stroke);
-    } else {
-      needsDraftRender = true;
-    }
+  }
+
+  if (currentPalmCenter) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(currentPalmCenter.x, currentPalmCenter.y, 100, 0, Math.PI * 2);
+    ctx.fill();
+    needsDraftRender = true;
+  } else if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
+    drawBatchedFreehand(stroke);
+  } else {
+    needsDraftRender = true;
   }
 });
 
@@ -313,12 +339,11 @@ function handlePointerEnd(e) {
 
   const stroke = activePointers.get(e.pointerId);
 
-  // Tie off freehand strokes cleanly
   if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2 && !stroke.isInvalidated) {
+    // Connect the very last point seamlessly
     const pts = stroke.points;
-    const last1 = pts[pts.length - 2];
+    const p0 = pts[stroke.lastRenderedIndex - 1] || pts[0];
     const curr = pts[pts.length - 1];
-    const mid = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
 
     ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.lineCap = 'round';
@@ -326,22 +351,21 @@ function handlePointerEnd(e) {
     ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
     ctx.beginPath();
-    ctx.moveTo(mid.x, mid.y);
+    ctx.moveTo((p0.x + curr.x) / 2, (p0.y + curr.y) / 2);
     ctx.lineTo(curr.x, curr.y);
     ctx.stroke();
   }
 
-  // Stamp finished shapes to the main board
   if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
     stampShapeToMain(stroke);
   }
 
   activePointers.delete(e.pointerId);
-  currentPalmCenter = checkPalmStatus(); // Re-evaluate if palm is still active
+  currentPalmCenter = checkPalmStatus();
 
   if (activePointers.size === 0) {
-    needsDraftRender = true; // Clear the draft canvas
-    saveState(); // Commit stroke to undo history
+    needsDraftRender = true; 
+    saveState(); // Commit to GPU cache
   }
 }
 
