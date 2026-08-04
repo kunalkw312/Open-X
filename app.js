@@ -1,6 +1,19 @@
 const canvas = document.getElementById('board');
-// willReadFrequently optimizes the canvas for frequent Undo/Redo snapshots
-const ctx = canvas.getContext('2d', { willReadFrequently: true }); 
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+// --- DUAL CANVAS SETUP (FOR 0 LATENCY & HIGHLIGHTER FIX) ---
+// We create a temporary top layer to draw active shapes and highlighters
+// without lagging the main board or causing overlapping alpha circles.
+const draftCanvas = document.createElement('canvas');
+draftCanvas.id = 'draftBoard';
+draftCanvas.style.position = 'absolute';
+draftCanvas.style.top = '0';
+draftCanvas.style.left = '0';
+draftCanvas.style.zIndex = '2'; // Above board, below toolbar
+draftCanvas.style.touchAction = 'none';
+draftCanvas.style.pointerEvents = 'none'; // Lets touches pass through to the main board
+canvas.parentNode.appendChild(draftCanvas);
+const draftCtx = draftCanvas.getContext('2d');
 
 // --- STATE MANAGEMENT ---
 let currentTool = 'pen';
@@ -9,39 +22,38 @@ let currentSize = 4;
 let isDrawing = false;
 let isPalmErasing = false;
 
-// Coordinates
-let startX = 0, startY = 0;
-let lastX = 0, lastY = 0;
+let points = []; // Stores coordinates for smoothing
 
-// History for Undo/Redo and Shapes
 let undoStack = [];
 let redoStack = [];
-let snapshot = null;
 
-// --- DPI SCALING (HIGH RESOLUTION INK) ---
+// --- DPI SCALING ---
 function initCanvas() {
   const dpr = window.devicePixelRatio || 1;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
   
-  // Set actual internal canvas resolution
-  canvas.width = window.innerWidth * dpr;
-  canvas.height = window.innerHeight * dpr;
+  [canvas, draftCanvas].forEach(c => {
+    c.width = w * dpr;
+    c.height = h * dpr;
+    c.style.width = `${w}px`;
+    c.style.height = `${h}px`;
+  });
   
-  // Set CSS display size
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
+  // Reset transforms before scaling
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  draftCtx.setTransform(1, 0, 0, 1, 0, 0);
   
-  // Scale the context to match the CSS layout
   ctx.scale(dpr, dpr);
+  draftCtx.scale(dpr, dpr);
   
-  // Fill with white background (crucial for export and erasing)
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  ctx.fillRect(0, 0, w, h);
   
-  saveState(); // Save initial blank state
+  saveState();
 }
 
 window.addEventListener('resize', () => {
-  // Save current drawing before resizing
   const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
   initCanvas();
   ctx.putImageData(temp, 0, 0);
@@ -49,42 +61,28 @@ window.addEventListener('resize', () => {
 
 initCanvas();
 
-// --- COORDINATE MAPPING (THE FIX FOR THE OFFSET) ---
-// This translates the raw screen coordinates into exact canvas coordinates,
-// accounting for any browser toolbars, DPI scaling, and CSS layout shifts.
+// --- EXACT COORDINATE MAPPING (FIX FOR THE OFFSET) ---
 function getCoordinates(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  
-  // Calculate the scale in case the canvas CSS size differs from internal pixel size
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  
+  // Because ctx.scale() is active, we just need the exact CSS pixel relative to the canvas
   return {
-    x: ((clientX - rect.left) * scaleX) / dpr,
-    y: ((clientY - rect.top) * scaleY) / dpr
+    x: clientX - rect.left,
+    y: clientY - rect.top
   };
 }
 
-// --- UI / TOOLBAR LISTENERS ---
+// --- UI LISTENERS ---
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
-    // Remove active class from all tools
     document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
-    // Set clicked tool as active
     const btn = e.currentTarget;
     btn.classList.add('active');
     currentTool = btn.dataset.tool;
   });
 });
 
-document.getElementById('colorPicker').addEventListener('input', (e) => {
-  currentColor = e.target.value;
-});
-
-document.getElementById('sizePicker').addEventListener('input', (e) => {
-  currentSize = parseInt(e.target.value, 10);
-});
+document.getElementById('colorPicker').addEventListener('input', (e) => currentColor = e.target.value);
+document.getElementById('sizePicker').addEventListener('input', (e) => currentSize = parseInt(e.target.value, 10));
 
 document.getElementById('btnClear').addEventListener('click', () => {
   ctx.fillStyle = '#ffffff';
@@ -99,19 +97,17 @@ document.getElementById('btnExport').addEventListener('click', () => {
   link.click();
 });
 
-// --- UNDO / REDO LOGIC ---
+// --- UNDO / REDO ---
 function saveState() {
-  // Keep history to 20 steps to prevent massive memory usage on 4K screens
   if (undoStack.length >= 20) undoStack.shift(); 
   undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-  redoStack = []; // Clear redo stack on new action
+  redoStack = []; 
 }
 
 document.getElementById('btnUndo').addEventListener('click', () => {
   if (undoStack.length > 1) {
     redoStack.push(undoStack.pop());
-    const previousState = undoStack[undoStack.length - 1];
-    ctx.putImageData(previousState, 0, 0);
+    ctx.putImageData(undoStack[undoStack.length - 1], 0, 0);
   }
 });
 
@@ -124,92 +120,135 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 });
 
 // --- CORE DRAWING LOGIC ---
-function applyToolSettings(forceEraser = false) {
-  const activeTool = forceEraser ? 'eraser' : currentTool;
-  
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = currentColor;
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
+function applyToolSettings(context, tool) {
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.strokeStyle = currentColor;
+  context.globalAlpha = 1; 
+  context.globalCompositeOperation = 'source-over';
 
-  switch (activeTool) {
-    case 'pen':
-      ctx.lineWidth = currentSize;
-      break;
-    case 'marker':
-      ctx.lineWidth = currentSize * 3;
-      break;
-    case 'highlighter':
-      ctx.lineWidth = currentSize * 5;
-      ctx.globalAlpha = 0.4;
-      // Multiply blends the color over existing ink like a real highlighter
-      ctx.globalCompositeOperation = 'multiply'; 
-      break;
-    case 'eraser':
-      // Erases ink, revealing the white background
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.lineWidth = forceEraser ? 150 : currentSize * 8; // Massive if IR Palm
-      break;
-    case 'line':
-    case 'rect':
-    case 'circle':
-      ctx.lineWidth = currentSize;
-      break;
+  if (tool === 'pen') {
+    context.lineWidth = currentSize;
+  } else if (tool === 'marker') {
+    context.lineWidth = currentSize * 3;
+  } else if (tool === 'highlighter') {
+    context.lineWidth = currentSize * 5;
+    // Note: Highlighter transparency is applied during the stamp phase
+  } else if (tool === 'eraser') {
+    context.globalCompositeOperation = 'destination-out';
+    context.lineWidth = isPalmErasing ? 150 : currentSize * 8;
+  } else {
+    context.lineWidth = currentSize;
   }
 }
 
 function handleStart(x, y) {
   isDrawing = true;
-  startX = x;
-  startY = y;
-  lastX = x;
-  lastY = y;
-  // Save a snapshot of the canvas before we start drawing shapes over it
-  snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  points = [{x, y}];
+
+  const actualTool = isPalmErasing ? 'eraser' : currentTool;
+
+  // For fast, incremental tools, we draw a starting dot immediately
+  if (['pen', 'marker', 'eraser'].includes(actualTool)) {
+    applyToolSettings(ctx, actualTool);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 0.1, y + 0.1); 
+    ctx.stroke();
+  }
 }
 
 function handleMove(x, y, forceEraser = false) {
   if (!isDrawing) return;
-
+  points.push({x, y});
+  
   const tool = forceEraser ? 'eraser' : currentTool;
-  applyToolSettings(forceEraser);
 
-  if (tool === 'pen' || tool === 'marker' || tool === 'highlighter' || tool === 'eraser') {
-    // Freehand drawing
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    lastX = x;
-    lastY = y;
+  if (['pen', 'marker', 'eraser'].includes(tool)) {
+    // 0-LATENCY BEZIER SMOOTHING: Incrementally draw directly to the base canvas
+    if (points.length >= 3) {
+      const last2 = points[points.length - 3];
+      const last1 = points[points.length - 2];
+      const curr = points[points.length - 1];
+
+      const mid1 = { x: (last2.x + last1.x) / 2, y: (last2.y + last1.y) / 2 };
+      const mid2 = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
+
+      applyToolSettings(ctx, tool);
+      ctx.beginPath();
+      ctx.moveTo(mid1.x, mid1.y);
+      ctx.quadraticCurveTo(last1.x, last1.y, mid2.x, mid2.y);
+      ctx.stroke();
+    }
   } else {
-    // Shape drawing: Restore the snapshot first, then draw the shape on top
-    ctx.putImageData(snapshot, 0, 0);
-    ctx.beginPath();
+    // SHAPES & HIGHLIGHTER: Draw to the draft canvas to prevent overlap artifacts and lag
+    draftCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    applyToolSettings(draftCtx, tool);
+    draftCtx.beginPath();
+
+    const start = points[0];
 
     if (tool === 'line') {
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(x, y);
+      draftCtx.moveTo(start.x, start.y);
+      draftCtx.lineTo(x, y);
     } else if (tool === 'rect') {
-      ctx.rect(startX, startY, x - startX, y - startY);
+      draftCtx.rect(start.x, start.y, x - start.x, y - start.y);
     } else if (tool === 'circle') {
-      const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
-      ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+      const radius = Math.hypot(x - start.x, y - start.y);
+      draftCtx.arc(start.x, start.y, radius, 0, Math.PI * 2);
+    } else if (tool === 'highlighter') {
+      // Draw highlighter as one continuous, solid path on the draft layer
+      draftCtx.moveTo(start.x, start.y);
+      for (let i = 1; i < points.length - 1; i++) {
+        const c = (points[i].x + points[i+1].x) / 2;
+        const d = (points[i].y + points[i+1].y) / 2;
+        draftCtx.quadraticCurveTo(points[i].x, points[i].y, c, d);
+      }
+      draftCtx.lineTo(x, y);
     }
-    ctx.stroke();
+    draftCtx.stroke();
   }
 }
 
 function handleEnd() {
-  if (isDrawing) {
-    isDrawing = false;
-    isPalmErasing = false;
-    saveState(); // Save to undo history when stroke finishes
+  if (!isDrawing) return;
+  isDrawing = false;
+  
+  const actualTool = isPalmErasing ? 'eraser' : currentTool;
+
+  // Tie off the final segment for incremental smooth strokes
+  if (['pen', 'marker', 'eraser'].includes(actualTool) && points.length > 1) {
+    const last1 = points[points.length - 2] || points[0];
+    const curr = points[points.length - 1];
+    const mid = { x: (last1.x + curr.x) / 2, y: (last1.y + curr.y) / 2 };
+    
+    ctx.beginPath();
+    ctx.moveTo(mid.x, mid.y);
+    ctx.lineTo(curr.x, curr.y);
+    ctx.stroke();
   }
+
+  // Stamp draft layer to base layer for shapes and highlighters
+  if (['line', 'rect', 'circle', 'highlighter'].includes(actualTool) && !isPalmErasing) {
+    ctx.save();
+    if (actualTool === 'highlighter') {
+      ctx.globalAlpha = 0.4;
+      ctx.globalCompositeOperation = 'multiply'; // Blends beautifully like real ink
+    }
+    
+    // Scale down dimensions because ctx is already scaled by dpr
+    const dpr = window.devicePixelRatio || 1;
+    ctx.drawImage(draftCanvas, 0, 0, canvas.width / dpr, canvas.height / dpr);
+    ctx.restore();
+    
+    draftCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  }
+
+  isPalmErasing = false;
+  saveState(); // Commit to undo history
 }
 
-// --- WINDOWS / MOUSE / ACTIVE STYLUS LOGIC ---
+// --- WINDOWS / STYLUS LOGIC ---
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') return; 
   const { x, y } = getCoordinates(e.clientX, e.clientY);
@@ -238,7 +277,6 @@ function getTouchCenter(touches) {
 
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault(); 
-  
   if (e.touches.length >= 3) {
     isPalmErasing = true;
     const { x, y } = getTouchCenter(e.touches);
@@ -252,7 +290,6 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-
   if (e.touches.length >= 3) {
     isPalmErasing = true;
     const { x, y } = getTouchCenter(e.touches);
@@ -264,12 +301,8 @@ canvas.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('touchend', (e) => {
-  // If user lifts part of palm, drop stroke to avoid accidental dots
-  if (isPalmErasing && e.touches.length < 3) {
-    handleEnd();
-  } else if (e.touches.length === 0) {
-    handleEnd();
-  }
+  if (isPalmErasing && e.touches.length < 3) handleEnd();
+  else if (e.touches.length === 0) handleEnd();
 });
 
 canvas.addEventListener('touchcancel', handleEnd);
