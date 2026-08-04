@@ -1,91 +1,232 @@
 const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d');
+// willReadFrequently optimizes the canvas for frequent Undo/Redo snapshots
+const ctx = canvas.getContext('2d', { willReadFrequently: true }); 
 
-// Ensure canvas fills the entire large format display
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
+// --- STATE MANAGEMENT ---
+let currentTool = 'pen';
+let currentColor = '#000000';
+let currentSize = 4;
 let isDrawing = false;
-let isErasing = false;
+let isPalmErasing = false;
 
-function startDraw(x, y) {
-  isDrawing = true;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-}
+// Coordinates
+let startX = 0, startY = 0;
+let lastX = 0, lastY = 0;
 
-function drawLine(x, y, isEraser) {
-  if (!isDrawing) return;
+// History for Undo/Redo and Shapes
+let undoStack = [];
+let redoStack = [];
+let snapshot = null;
 
-  // Make the eraser massive (150px) so it feels natural on a 65"+ screen
-  ctx.lineWidth = isEraser ? 150 : 5;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+// --- DPI SCALING (HIGH RESOLUTION INK) ---
+function initCanvas() {
+  const dpr = window.devicePixelRatio || 1;
   
-  // 'destination-out' erases pixels, 'source-over' draws normally
-  ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
-  ctx.strokeStyle = 'black';
-
-  ctx.lineTo(x, y);
-  ctx.stroke();
+  // Set actual internal canvas resolution
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  
+  // Set CSS display size
+  canvas.style.width = `${window.innerWidth}px`;
+  canvas.style.height = `${window.innerHeight}px`;
+  
+  // Scale the context to match the CSS layout
+  ctx.scale(dpr, dpr);
+  
+  // Fill with white background (crucial for export and erasing)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  
+  saveState(); // Save initial blank state
 }
 
-function stopDraw() {
-  isDrawing = false;
-  isErasing = false;
-}
-
-// -----------------------------------------------------------
-// WINDOWS / MOUSE / ACTIVE STYLUS LOGIC
-// -----------------------------------------------------------
-canvas.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'touch') return; // Let touch events handle IR frames
-  startDraw(e.clientX, e.clientY);
+window.addEventListener('resize', () => {
+  // Save current drawing before resizing
+  const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  initCanvas();
+  ctx.putImageData(temp, 0, 0);
 });
 
-canvas.addEventListener('pointerup', stopDraw);
-canvas.addEventListener('pointercancel', stopDraw);
+initCanvas();
+
+// --- UI / TOOLBAR LISTENERS ---
+document.querySelectorAll('.tool').forEach(button => {
+  button.addEventListener('click', (e) => {
+    // Remove active class from all tools
+    document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
+    // Set clicked tool as active
+    const btn = e.currentTarget;
+    btn.classList.add('active');
+    currentTool = btn.dataset.tool;
+  });
+});
+
+document.getElementById('colorPicker').addEventListener('input', (e) => {
+  currentColor = e.target.value;
+});
+
+document.getElementById('sizePicker').addEventListener('input', (e) => {
+  currentSize = parseInt(e.target.value, 10);
+});
+
+document.getElementById('btnClear').addEventListener('click', () => {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  saveState();
+});
+
+document.getElementById('btnExport').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'Smartboard-Export.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+
+// --- UNDO / REDO LOGIC ---
+function saveState() {
+  // Keep history to 20 steps to prevent massive memory usage on 4K screens
+  if (undoStack.length >= 20) undoStack.shift(); 
+  undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  redoStack = []; // Clear redo stack on new action
+}
+
+document.getElementById('btnUndo').addEventListener('click', () => {
+  if (undoStack.length > 1) {
+    redoStack.push(undoStack.pop());
+    const previousState = undoStack[undoStack.length - 1];
+    ctx.putImageData(previousState, 0, 0);
+  }
+});
+
+document.getElementById('btnRedo').addEventListener('click', () => {
+  if (redoStack.length > 0) {
+    const nextState = redoStack.pop();
+    undoStack.push(nextState);
+    ctx.putImageData(nextState, 0, 0);
+  }
+});
+
+// --- CORE DRAWING LOGIC ---
+function applyToolSettings(forceEraser = false) {
+  const activeTool = forceEraser ? 'eraser' : currentTool;
+  
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = currentColor;
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  switch (activeTool) {
+    case 'pen':
+      ctx.lineWidth = currentSize;
+      break;
+    case 'marker':
+      ctx.lineWidth = currentSize * 3;
+      break;
+    case 'highlighter':
+      ctx.lineWidth = currentSize * 5;
+      ctx.globalAlpha = 0.4;
+      // Multiply blends the color over existing ink like a real highlighter
+      ctx.globalCompositeOperation = 'multiply'; 
+      break;
+    case 'eraser':
+      // Erases ink, revealing the white background
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineWidth = forceEraser ? 150 : currentSize * 8; // Massive if IR Palm
+      break;
+    case 'line':
+    case 'rect':
+    case 'circle':
+      ctx.lineWidth = currentSize;
+      break;
+  }
+}
+
+function handleStart(x, y) {
+  isDrawing = true;
+  startX = x;
+  startY = y;
+  lastX = x;
+  lastY = y;
+  // Save a snapshot of the canvas before we start drawing shapes over it
+  snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function handleMove(x, y, forceEraser = false) {
+  if (!isDrawing) return;
+
+  const tool = forceEraser ? 'eraser' : currentTool;
+  applyToolSettings(forceEraser);
+
+  if (tool === 'pen' || tool === 'marker' || tool === 'highlighter' || tool === 'eraser') {
+    // Freehand drawing
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastX = x;
+    lastY = y;
+  } else {
+    // Shape drawing: Restore the snapshot first, then draw the shape on top
+    ctx.putImageData(snapshot, 0, 0);
+    ctx.beginPath();
+
+    if (tool === 'line') {
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(x, y);
+    } else if (tool === 'rect') {
+      ctx.rect(startX, startY, x - startX, y - startY);
+    } else if (tool === 'circle') {
+      const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+      ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+    }
+    ctx.stroke();
+  }
+}
+
+function handleEnd() {
+  if (isDrawing) {
+    isDrawing = false;
+    isPalmErasing = false;
+    saveState(); // Save to undo history when stroke finishes
+  }
+}
+
+// --- WINDOWS / MOUSE / ACTIVE STYLUS LOGIC ---
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') return; 
+  handleStart(e.clientX, e.clientY);
+});
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'touch') return; 
-
-  const isEraser = e.pointerType === 'eraser';
-  drawLine(e.clientX, e.clientY, isEraser);
+  const isHardwareEraser = e.pointerType === 'eraser';
+  handleMove(e.clientX, e.clientY, isHardwareEraser);
 });
 
-// -----------------------------------------------------------
-// ANDROID IFP / IR TOUCH LOGIC
-// -----------------------------------------------------------
+canvas.addEventListener('pointerup', handleEnd);
+canvas.addEventListener('pointercancel', handleEnd);
 
-// Helper function to find the center of a palm/fist on the IR grid
+// --- ANDROID IFP / IR TOUCH LOGIC ---
 function getTouchCenter(touches) {
-  let x = 0;
-  let y = 0;
+  let x = 0, y = 0;
   for (let i = 0; i < touches.length; i++) {
     x += touches[i].clientX;
     y += touches[i].clientY;
   }
-  return {
-    x: x / touches.length,
-    y: y / touches.length
-  };
+  return { x: x / touches.length, y: y / touches.length };
 }
 
 canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault(); // CRITICAL: Stops Android zooming/scrolling on the IFP
-
-  // 3 or more touch points indicates a palm or fist on an IR board
+  e.preventDefault(); 
+  
   if (e.touches.length >= 3) {
-    isErasing = true;
+    isPalmErasing = true;
     const center = getTouchCenter(e.touches);
-    startDraw(center.x, center.y);
+    handleStart(center.x, center.y);
   } else if (e.touches.length === 1) {
-    isErasing = false;
-    startDraw(e.touches[0].clientX, e.touches[0].clientY);
+    isPalmErasing = false;
+    handleStart(e.touches[0].clientX, e.touches[0].clientY);
   }
 }, { passive: false });
 
@@ -93,24 +234,21 @@ canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
 
   if (e.touches.length >= 3) {
-    // Erasing with palm
-    isErasing = true;
+    isPalmErasing = true;
     const center = getTouchCenter(e.touches);
-    drawLine(center.x, center.y, true);
-  } else if (e.touches.length === 1 && !isErasing) {
-    // Drawing with single finger or dummy stylus
-    drawLine(e.touches[0].clientX, e.touches[0].clientY, false);
+    handleMove(center.x, center.y, true);
+  } else if (e.touches.length === 1 && !isPalmErasing) {
+    handleMove(e.touches[0].clientX, e.touches[0].clientY, false);
   }
 }, { passive: false });
 
 canvas.addEventListener('touchend', (e) => {
-  // If the user lifts part of their palm and drops below 3 touches, 
-  // stop erasing entirely so it doesn't accidentally draw a dot.
-  if (isErasing && e.touches.length < 3) {
-    stopDraw();
+  // If user lifts part of palm, drop stroke to avoid accidental dots
+  if (isPalmErasing && e.touches.length < 3) {
+    handleEnd();
   } else if (e.touches.length === 0) {
-    stopDraw();
+    handleEnd();
   }
 });
 
-canvas.addEventListener('touchcancel', stopDraw);
+canvas.addEventListener('touchcancel', handleEnd);
