@@ -1,5 +1,5 @@
 const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false }); // Disabling alpha on main canvas increases GPU compositing speed
 
 // --- DUAL CANVAS SETUP ---
 const draftCanvas = document.createElement('canvas');
@@ -20,7 +20,6 @@ let currentSize = 4;
 
 const activePointers = new Map(); 
 
-// GPU-Accelerated Undo/Redo using offscreen canvases
 let undoStack = [];
 let redoStack = [];
 const MAX_HISTORY = 15;
@@ -68,7 +67,6 @@ function getCoordinates(clientX, clientY) {
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
     document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
-    // Use currentTarget because the user might click the SVG inside the button
     const btn = e.currentTarget;
     btn.classList.add('active');
     currentTool = btn.dataset.tool;
@@ -133,29 +131,30 @@ document.getElementById('btnRedo').addEventListener('click', () => {
   }
 });
 
-// --- MULTI-TOUCH & DRAWING ENGINE ---
+// --- ULTRA-FAST MULTI-TOUCH & DRAWING ENGINE ---
 
 let needsDraftRender = false;
 let currentPalmCenter = null;
 
-// PROXIMITY PALM DETECTION: 5+ touches within 150px
 function checkPalmStatus() {
   if (activePointers.size < 5) return null;
 
   let cx = 0, cy = 0;
-  let pts = [];
-  activePointers.forEach(p => {
-    const lastPt = p.points[p.points.length - 1];
-    cx += lastPt.x;
-    cy += lastPt.y;
-    pts.push(lastPt);
-  });
-  cx /= pts.length;
-  cy /= pts.length;
+  let count = 0;
+  
+  for (let p of activePointers.values()) {
+    const pt = p.points[p.points.length - 1];
+    cx += pt.x;
+    cy += pt.y;
+    count++;
+  }
+  cx /= count;
+  cy /= count;
 
   const MAX_RADIUS = 150; 
-  for (let pt of pts) {
-    if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
+  for (let p of activePointers.values()) {
+    const pt = p.points[p.points.length - 1];
+    if ((pt.x - cx) ** 2 + (pt.y - cy) ** 2 > MAX_RADIUS ** 2) {
       return null; 
     }
   }
@@ -164,8 +163,8 @@ function checkPalmStatus() {
   return { x: cx, y: cy };
 }
 
-// BATCHED BEZIER CURVES
-function drawBatchedFreehand(stroke) {
+// Highly optimized inline freehand drawing loop for absolute zero latency
+function drawBatch(stroke) {
   if (stroke.isInvalidated || stroke.points.length < 3) return;
   
   const pts = stroke.points;
@@ -179,14 +178,14 @@ function drawBatchedFreehand(stroke) {
   ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
   ctx.beginPath();
-  
   const p0 = pts[i - 1];
   const p1 = pts[i];
   ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
 
   for (; i < pts.length - 1; i++) {
-    const mid = { x: (pts[i].x + pts[i+1].x) / 2, y: (pts[i].y + pts[i+1].y) / 2 };
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mid.x, mid.y);
+    const midX = (pts[i].x + pts[i+1].x) / 2;
+    const midY = (pts[i].y + pts[i+1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
   }
   ctx.stroke();
   
@@ -249,7 +248,7 @@ function stampShapeToMain(stroke) {
   ctx.restore();
 }
 
-// --- OPTIMIZED DRAFT RENDER LOOP ---
+// --- DECOUPLED RENDER LOOP FOR SHAPES & ERASER FEEDBACK ---
 function renderDraftLayer() {
   if (needsDraftRender) {
     draftCtx.clearRect(0, 0, canvas.width, canvas.height);
@@ -257,7 +256,6 @@ function renderDraftLayer() {
     if (currentPalmCenter) {
       draftCtx.globalCompositeOperation = 'source-over';
       draftCtx.beginPath();
-      // Reduced to 75px radius
       draftCtx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
       draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
       draftCtx.fill();
@@ -274,7 +272,7 @@ function renderDraftLayer() {
 }
 requestAnimationFrame(renderDraftLayer);
 
-// --- UNIFIED POINTER EVENT LISTENERS ---
+// --- POINTER EVENT LISTENERS ---
 
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
@@ -312,19 +310,18 @@ canvas.addEventListener('pointermove', (e) => {
   
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   
-  for (let event of events) {
-    stroke.points.push(getCoordinates(event.clientX, event.clientY));
+  for (let i = 0; i < events.length; i++) {
+    stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
 
   if (currentPalmCenter) {
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    // Reduced to 75px radius
     ctx.arc(currentPalmCenter.x, currentPalmCenter.y, 75, 0, Math.PI * 2);
     ctx.fill();
     needsDraftRender = true;
   } else if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
-    drawBatchedFreehand(stroke);
+    drawBatch(stroke);
   } else {
     needsDraftRender = true;
   }
