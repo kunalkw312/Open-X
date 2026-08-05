@@ -1,15 +1,11 @@
 // --- CONFIGURATION ---
 const PALM_ERASER_RADIUS = 45;
-
-// Lowered slightly to catch the palm easier, now that the 80px limit is gone
-const PALM_JITTER_RATIO_THRESHOLD = 5.0; 
-const PALM_REVERSAL_THRESHOLD = 10;
+const MIN_PALM_SIZE_PX = 75; // The minimum physical width/height of the touch to trigger the eraser
 
 // --- INITIALIZATION ---
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d'); 
 
-// --- DUAL CANVAS SETUP ---
 const draftCanvas = document.createElement('canvas');
 draftCanvas.id = 'draftBoard';
 draftCanvas.style.position = 'absolute';
@@ -28,12 +24,10 @@ let currentSize = 4;
 
 const activePointers = new Map(); 
 
-// GPU-Accelerated Undo/Redo using offscreen canvases
 let undoStack = [];
 let redoStack = [];
 const MAX_HISTORY = 15;
 
-// --- DPI SCALING ---
 function initCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
@@ -63,13 +57,9 @@ function initCanvas() {
 window.addEventListener('resize', initCanvas);
 initCanvas();
 
-// --- EXACT COORDINATE MAPPING ---
 function getCoordinates(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  return {
-    x: clientX - rect.left,
-    y: clientY - rect.top
-  };
+  return { x: clientX - rect.left, y: clientY - rect.top };
 }
 
 // --- UI LISTENERS ---
@@ -146,53 +136,8 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 });
 
 // --- MULTI-TOUCH & DRAWING ENGINE ---
-
 let needsDraftRender = false;
 
-// BEHAVIORAL PALM DETECTION
-function analyzeBehavioralPalm(stroke) {
-  if (stroke.isPalm) return true; 
-  
-  const pts = stroke.points;
-  const SAMPLE_SIZE = 12; 
-  
-  if (pts.length < SAMPLE_SIZE) return false;
-
-  let dist = 0;
-  let revs = 0;
-  let lastDx = 0, lastDy = 0;
-  
-  const startIdx = pts.length - SAMPLE_SIZE;
-  const startPt = pts[startIdx];
-  const endPt = pts[pts.length - 1];
-
-  for (let i = startIdx + 1; i < pts.length; i++) {
-    const dx = pts[i].x - pts[i - 1].x;
-    const dy = pts[i].y - pts[i - 1].y;
-    dist += Math.hypot(dx, dy);
-
-    if ((dx > 0 && lastDx < 0) || (dx < 0 && lastDx > 0)) revs++;
-    if ((dy > 0 && lastDy < 0) || (dy < 0 && lastDy > 0)) revs++;
-
-    if (dx !== 0) lastDx = dx;
-    if (dy !== 0) lastDy = dy;
-  }
-
-  const linearDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  
-  // The 80px cancellation rule was removed here so fast palm wipes still work!
-  const ratio = linearDist === 0 ? 0 : dist / linearDist;
-
-  if (ratio > PALM_JITTER_RATIO_THRESHOLD || revs >= PALM_REVERSAL_THRESHOLD) {
-    stroke.isPalm = true;
-    stroke.tool = 'eraser'; 
-    return true; 
-  }
-  
-  return false;
-}
-
-// BATCHED BEZIER CURVES
 function drawBatch(stroke) {
   if (stroke.points.length < 3) return;
   
@@ -283,12 +228,10 @@ function renderDraftLayer() {
     draftCtx.clearRect(0, 0, canvas.width, canvas.height);
     
     activePointers.forEach(stroke => {
-      // Draw shapes/highlighters
       if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) && !stroke.isPalm) {
         drawShapeOnContext(draftCtx, stroke);
       }
       
-      // Draw visual feedback for palm eraser
       if (stroke.isPalm) {
         const pt = stroke.points[stroke.points.length - 1];
         draftCtx.globalCompositeOperation = 'source-over';
@@ -308,19 +251,16 @@ function renderDraftLayer() {
 }
 requestAnimationFrame(renderDraftLayer);
 
-// --- UNIFIED POINTER EVENT LISTENERS ---
-
+// --- AREA-BASED PALM DETECTION & POINTER LISTENERS ---
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  const coords = getCoordinates(e.clientX, e.clientY);
-  let tool = e.pointerType === 'eraser' ? 'eraser' : currentTool;
   
-  // FALLBACK CHECK: If the firmware DOES pass the width size, hijack the tool immediately
-  let isHardwarePalm = false;
-  if (e.width >= 75 || e.height >= 75) {
-    isHardwarePalm = true;
-    tool = 'eraser';
-  }
+  // Directly check the physical width/height reported by the hardware
+  const pointerSize = Math.max(e.width || 1, e.height || 1);
+  const isMassiveTouch = pointerSize >= MIN_PALM_SIZE_PX || e.pointerType === 'eraser';
+  
+  const coords = getCoordinates(e.clientX, e.clientY);
+  const tool = isMassiveTouch ? 'eraser' : currentTool;
 
   activePointers.set(e.pointerId, {
     tool: tool,
@@ -328,14 +268,15 @@ canvas.addEventListener('pointerdown', (e) => {
     size: currentSize,
     points: [coords],
     lastRenderedIndex: 1,
-    isPalm: isHardwarePalm 
+    isPalm: isMassiveTouch 
   });
 
   if (['pen', 'marker', 'eraser'].includes(tool)) {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.fillStyle = currentColor;
     ctx.beginPath();
-    ctx.arc(coords.x, coords.y, (tool === 'eraser' ? currentSize * 8 : currentSize) / 2, 0, Math.PI * 2);
+    const radius = tool === 'eraser' ? (isMassiveTouch ? PALM_ERASER_RADIUS : currentSize * 4) : currentSize / 2;
+    ctx.arc(coords.x, coords.y, radius, 0, Math.PI * 2);
     ctx.fill();
   }
 });
@@ -345,13 +286,18 @@ canvas.addEventListener('pointermove', (e) => {
   if (!activePointers.has(e.pointerId)) return;
 
   const stroke = activePointers.get(e.pointerId);
-  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   
+  // Continuously check size in case the palm flattens out during the stroke
+  const pointerSize = Math.max(e.width || 1, e.height || 1);
+  if (pointerSize >= MIN_PALM_SIZE_PX && !stroke.isPalm) {
+    stroke.isPalm = true;
+    stroke.tool = 'eraser';
+  }
+
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   for (let i = 0; i < events.length; i++) {
     stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
-
-  analyzeBehavioralPalm(stroke);
 
   if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
     drawBatch(stroke);
@@ -391,7 +337,6 @@ function handlePointerEnd(e) {
   }
 
   activePointers.delete(e.pointerId);
-
   needsDraftRender = true; 
   
   if (activePointers.size === 0) {
