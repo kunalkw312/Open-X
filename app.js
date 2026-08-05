@@ -1,10 +1,9 @@
 // --- CONFIGURATION ---
 const PALM_ERASER_RADIUS = 45;
 
-// Increased thresholds to prevent handwriting from activating the eraser
-const PALM_JITTER_RATIO_THRESHOLD = 2.0; 
-const PALM_REVERSAL_THRESHOLD = 12;
-
+// Lowered slightly to catch the palm easier, now that the 80px limit is gone
+const PALM_JITTER_RATIO_THRESHOLD = 5.0; 
+const PALM_REVERSAL_THRESHOLD = 10;
 
 // --- INITIALIZATION ---
 const canvas = document.getElementById('board');
@@ -155,7 +154,7 @@ function analyzeBehavioralPalm(stroke) {
   if (stroke.isPalm) return true; 
   
   const pts = stroke.points;
-  const SAMPLE_SIZE = 15; // Increased to distinguish from fast handwriting
+  const SAMPLE_SIZE = 12; 
   
   if (pts.length < SAMPLE_SIZE) return false;
 
@@ -181,9 +180,7 @@ function analyzeBehavioralPalm(stroke) {
 
   const linearDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
   
-  // If the stroke travels far linearly (>80px), it's handwriting, not a vibrating palm
-  if (linearDist > 80) return false;
-
+  // The 80px cancellation rule was removed here so fast palm wipes still work!
   const ratio = linearDist === 0 ? 0 : dist / linearDist;
 
   if (ratio > PALM_JITTER_RATIO_THRESHOLD || revs >= PALM_REVERSAL_THRESHOLD) {
@@ -316,7 +313,14 @@ requestAnimationFrame(renderDraftLayer);
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
-  const tool = e.pointerType === 'eraser' ? 'eraser' : currentTool;
+  let tool = e.pointerType === 'eraser' ? 'eraser' : currentTool;
+  
+  // FALLBACK CHECK: If the firmware DOES pass the width size, hijack the tool immediately
+  let isHardwarePalm = false;
+  if (e.width >= 75 || e.height >= 75) {
+    isHardwarePalm = true;
+    tool = 'eraser';
+  }
 
   activePointers.set(e.pointerId, {
     tool: tool,
@@ -324,7 +328,7 @@ canvas.addEventListener('pointerdown', (e) => {
     size: currentSize,
     points: [coords],
     lastRenderedIndex: 1,
-    isPalm: false 
+    isPalm: isHardwarePalm 
   });
 
   if (['pen', 'marker', 'eraser'].includes(tool)) {
