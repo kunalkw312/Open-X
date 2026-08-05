@@ -1,19 +1,13 @@
 // --- CONFIGURATION ---
-
-// 1. Palm Eraser Size: Change this to make the visual and physical eraser larger or smaller.
-// A radius of 50 means the eraser is 100 pixels wide.
 const PALM_ERASER_RADIUS = 45;
 
-// 2. Palm Detection Sensitivity: Increase these to make it HARDER to accidentally trigger the palm eraser.
-// - Jitter Ratio: How much the touch vibrates compared to a straight line (Normal pen is ~1.0).
-const PALM_JITTER_RATIO_THRESHOLD = 4.8; 
-// - Direction Reversals: How many times the touch changes X/Y direction rapidly.
-const PALM_REVERSAL_THRESHOLD = 4;     
+// Increased thresholds to prevent handwriting from activating the eraser
+const PALM_JITTER_RATIO_THRESHOLD = 7.0; 
+const PALM_REVERSAL_THRESHOLD = 12;
 
 
 // --- INITIALIZATION ---
 const canvas = document.getElementById('board');
-// Removed { alpha: false } so 'destination-out' erasing works correctly again
 const ctx = canvas.getContext('2d'); 
 
 // --- DUAL CANVAS SETUP ---
@@ -80,6 +74,8 @@ function getCoordinates(clientX, clientY) {
 }
 
 // --- UI LISTENERS ---
+const sizeValueDisplay = document.getElementById('sizeValue');
+
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
     document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
@@ -90,7 +86,10 @@ document.querySelectorAll('.tool').forEach(button => {
 });
 
 document.getElementById('colorPicker').addEventListener('input', (e) => currentColor = e.target.value);
-document.getElementById('sizePicker').addEventListener('input', (e) => currentSize = parseInt(e.target.value, 10));
+document.getElementById('sizePicker').addEventListener('input', (e) => {
+  currentSize = parseInt(e.target.value, 10);
+  sizeValueDisplay.textContent = `${currentSize}px`;
+});
 
 document.getElementById('btnClear').addEventListener('click', () => {
   ctx.fillStyle = '#ffffff';
@@ -151,12 +150,12 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 
 let needsDraftRender = false;
 
-// BEHAVIORAL PALM DETECTION (Using Jitter Heuristics)
+// BEHAVIORAL PALM DETECTION
 function analyzeBehavioralPalm(stroke) {
   if (stroke.isPalm) return true; 
   
   const pts = stroke.points;
-  const SAMPLE_SIZE = 8; 
+  const SAMPLE_SIZE = 15; // Increased to distinguish from fast handwriting
   
   if (pts.length < SAMPLE_SIZE) return false;
 
@@ -181,9 +180,12 @@ function analyzeBehavioralPalm(stroke) {
   }
 
   const linearDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  
+  // If the stroke travels far linearly (>80px), it's handwriting, not a vibrating palm
+  if (linearDist > 80) return false;
+
   const ratio = linearDist === 0 ? 0 : dist / linearDist;
 
-  // Uses the configuration variables defined at the top of the file
   if (ratio > PALM_JITTER_RATIO_THRESHOLD || revs >= PALM_REVERSAL_THRESHOLD) {
     stroke.isPalm = true;
     stroke.tool = 'eraser'; 
@@ -206,7 +208,6 @@ function drawBatch(stroke) {
   ctx.lineJoin = 'round';
   ctx.strokeStyle = stroke.color;
   
-  // Apply the custom palm eraser radius
   const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
   ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
@@ -295,7 +296,6 @@ function renderDraftLayer() {
         const pt = stroke.points[stroke.points.length - 1];
         draftCtx.globalCompositeOperation = 'source-over';
         draftCtx.beginPath();
-        // Uses the configuration variable
         draftCtx.arc(pt.x, pt.y, PALM_ERASER_RADIUS, 0, Math.PI * 2);
         draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
         draftCtx.fill();
@@ -373,7 +373,6 @@ function handlePointerEnd(e) {
     ctx.lineCap = 'round';
     ctx.strokeStyle = stroke.color;
     
-    // Uses the configuration variable
     const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
     ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
