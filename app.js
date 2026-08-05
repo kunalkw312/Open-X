@@ -1,6 +1,5 @@
 const canvas = document.getElementById('board');
-// Removed willReadFrequently because we are moving to GPU-accelerated undo states
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false }); // Disabling alpha on main canvas increases GPU compositing speed
 
 // --- DUAL CANVAS SETUP ---
 const draftCanvas = document.createElement('canvas');
@@ -21,7 +20,6 @@ let currentSize = 4;
 
 const activePointers = new Map(); 
 
-// GPU-Accelerated Undo/Redo using offscreen canvases instead of heavy ImageData
 let undoStack = [];
 let redoStack = [];
 const MAX_HISTORY = 15;
@@ -48,7 +46,6 @@ function initCanvas() {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   
-  // Clear history on resize to prevent skewed states
   undoStack = [];
   redoStack = [];
   saveState();
@@ -70,8 +67,9 @@ function getCoordinates(clientX, clientY) {
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
     document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
-    e.currentTarget.classList.add('active');
-    currentTool = e.currentTarget.dataset.tool;
+    const btn = e.currentTarget;
+    btn.classList.add('active');
+    currentTool = btn.dataset.tool;
   });
 });
 
@@ -92,11 +90,10 @@ document.getElementById('btnExport').addEventListener('click', () => {
 });
 
 // --- ZERO-LATENCY UNDO / REDO ---
-// Uses offscreen canvases to copy GPU to GPU instantly, avoiding CPU read stalls
 function saveState() {
   let cacheCanvas;
   if (undoStack.length >= MAX_HISTORY) {
-    cacheCanvas = undoStack.shift(); // Reuse oldest canvas memory
+    cacheCanvas = undoStack.shift(); 
   } else {
     cacheCanvas = document.createElement('canvas');
     cacheCanvas.width = canvas.width;
@@ -137,38 +134,56 @@ document.getElementById('btnRedo').addEventListener('click', () => {
 // --- MULTI-TOUCH & DRAWING ENGINE ---
 
 let needsDraftRender = false;
-let currentPalmCenter = null;
 
-// PROXIMITY PALM DETECTION: 4+ touches within 150px
-function checkPalmStatus() {
-  if (activePointers.size < 5) return null;
+// BEHAVIORAL PALM DETECTION (Using Jitter Heuristics)
+function analyzeBehavioralPalm(stroke) {
+  if (stroke.isPalm) return true; // Once flagged as palm, stays a palm
+  
+  const pts = stroke.points;
+  const SAMPLE_SIZE = 8; // Look at the last 8 micro-movements
+  
+  if (pts.length < SAMPLE_SIZE) return false;
 
-  let cx = 0, cy = 0;
-  let pts = [];
-  activePointers.forEach(p => {
-    const lastPt = p.points[p.points.length - 1];
-    cx += lastPt.x;
-    cy += lastPt.y;
-    pts.push(lastPt);
-  });
-  cx /= pts.length;
-  cy /= pts.length;
+  let dist = 0;
+  let revs = 0;
+  let lastDx = 0, lastDy = 0;
+  
+  const startIdx = pts.length - SAMPLE_SIZE;
+  const startPt = pts[startIdx];
+  const endPt = pts[pts.length - 1];
 
-  const MAX_RADIUS = 125; 
-  for (let pt of pts) {
-    if (Math.hypot(pt.x - cx, pt.y - cy) > MAX_RADIUS) {
-      return null; // Touches are too spread out (multiple users)
-    }
+  for (let i = startIdx + 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    dist += Math.hypot(dx, dy);
+
+    // Count directional reversals
+    if ((dx > 0 && lastDx < 0) || (dx < 0 && lastDx > 0)) revs++;
+    if ((dy > 0 && lastDy < 0) || (dy < 0 && lastDy > 0)) revs++;
+
+    if (dx !== 0) lastDx = dx;
+    if (dy !== 0) lastDy = dy;
   }
 
-  // It's a palm. Invalidate these strokes so they don't draw ink.
-  activePointers.forEach(p => p.isInvalidated = true);
-  return { x: cx, y: cy };
+  const linearDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  const ratio = linearDist === 0 ? 0 : dist / linearDist;
+
+  // If the stroke vibrates heavily (ratio > 2.5 or high reversals), it's a palm.
+  if (ratio > 2.5 || revs >= 4) {
+    stroke.isPalm = true;
+    stroke.tool = 'eraser'; // Hijack the stroke and turn it into an eraser!
+    
+    // The giant eraser will instantly swallow the tiny bit of accidental pen ink 
+    // it might have drawn during the first 50ms of detection.
+    return true; 
+  }
+  
+  return false;
 }
 
-// BATCHED BEZIER CURVES: Drastically reduces `stroke()` calls for 0 latency
-function drawBatchedFreehand(stroke) {
-  if (stroke.isInvalidated || stroke.points.length < 3) return;
+// BATCHED BEZIER CURVES
+function drawBatch(stroke) {
+  if (stroke.points.length < 3) return;
   
   const pts = stroke.points;
   let i = stroke.lastRenderedIndex;
@@ -178,19 +193,20 @@ function drawBatchedFreehand(stroke) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = stroke.color;
-  ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
+  
+  // Base sizing logic. If it was flagged as a palm via heuristics, make it massive.
+  const eraserSize = stroke.isPalm ? 150 : (stroke.size * 8);
+  ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
   ctx.beginPath();
-  
-  // Start from the midpoint of the last drawn segment
   const p0 = pts[i - 1];
   const p1 = pts[i];
   ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
 
-  // Curve through all new coalesced points
   for (; i < pts.length - 1; i++) {
-    const mid = { x: (pts[i].x + pts[i+1].x) / 2, y: (pts[i].y + pts[i+1].y) / 2 };
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mid.x, mid.y);
+    const midX = (pts[i].x + pts[i+1].x) / 2;
+    const midY = (pts[i].y + pts[i+1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
   }
   ctx.stroke();
   
@@ -198,7 +214,6 @@ function drawBatchedFreehand(stroke) {
 }
 
 function drawShapeOnContext(targetCtx, stroke) {
-  if (stroke.isInvalidated) return;
   targetCtx.lineCap = 'round';
   targetCtx.lineJoin = 'round';
   targetCtx.strokeStyle = stroke.color;
@@ -232,7 +247,6 @@ function drawShapeOnContext(targetCtx, stroke) {
 }
 
 function stampShapeToMain(stroke) {
-  if (stroke.isInvalidated) return;
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = canvas.width;
   tempCanvas.height = canvas.height;
@@ -258,19 +272,26 @@ function renderDraftLayer() {
   if (needsDraftRender) {
     draftCtx.clearRect(0, 0, canvas.width, canvas.height);
     
-    if (currentPalmCenter) {
-      draftCtx.globalCompositeOperation = 'source-over';
-      draftCtx.beginPath();
-      draftCtx.arc(currentPalmCenter.x, currentPalmCenter.y, 60, 0, Math.PI * 2);
-      draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
-      draftCtx.fill();
-    } else {
-      activePointers.forEach(stroke => {
-        if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
-          drawShapeOnContext(draftCtx, stroke);
-        }
-      });
-    }
+    activePointers.forEach(stroke => {
+      // Draw shapes/highlighters
+      if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) && !stroke.isPalm) {
+        drawShapeOnContext(draftCtx, stroke);
+      }
+      
+      // Draw visual feedback for palm eraser
+      if (stroke.isPalm) {
+        const pt = stroke.points[stroke.points.length - 1];
+        draftCtx.globalCompositeOperation = 'source-over';
+        draftCtx.beginPath();
+        draftCtx.arc(pt.x, pt.y, 75, 0, Math.PI * 2);
+        draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
+        draftCtx.fill();
+        draftCtx.lineWidth = 2;
+        draftCtx.strokeStyle = '#999';
+        draftCtx.stroke();
+      }
+    });
+    
     needsDraftRender = false;
   }
   requestAnimationFrame(renderDraftLayer);
@@ -290,20 +311,16 @@ canvas.addEventListener('pointerdown', (e) => {
     size: currentSize,
     points: [coords],
     lastRenderedIndex: 1,
-    isInvalidated: false
+    isPalm: false // Will be dynamically updated
   });
 
-  currentPalmCenter = checkPalmStatus();
-
-  if (['pen', 'marker', 'eraser'].includes(tool) && !currentPalmCenter) {
+  if (['pen', 'marker', 'eraser'].includes(tool)) {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.fillStyle = currentColor;
     ctx.beginPath();
     ctx.arc(coords.x, coords.y, (tool === 'eraser' ? currentSize * 8 : currentSize) / 2, 0, Math.PI * 2);
     ctx.fill();
   }
-
-  if (currentPalmCenter) needsDraftRender = true;
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -311,24 +328,21 @@ canvas.addEventListener('pointermove', (e) => {
   if (!activePointers.has(e.pointerId)) return;
 
   const stroke = activePointers.get(e.pointerId);
-  currentPalmCenter = checkPalmStatus();
-  
-  // Use Coalesced Events to capture micro-movements between screen frames
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   
-  for (let event of events) {
-    stroke.points.push(getCoordinates(event.clientX, event.clientY));
+  for (let i = 0; i < events.length; i++) {
+    stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
 
-  if (currentPalmCenter) {
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    ctx.arc(currentPalmCenter.x, currentPalmCenter.y, 60, 0, Math.PI * 2);
-    ctx.fill();
-    needsDraftRender = true;
-  } else if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
-    drawBatchedFreehand(stroke);
-  } else {
+  // Check if this specific stroke behaves like a palm
+  analyzeBehavioralPalm(stroke);
+
+  if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
+    drawBatch(stroke);
+  }
+  
+  // Trigger draft render for shapes, highlighters, or visual palm circles
+  if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) || stroke.isPalm) {
     needsDraftRender = true;
   }
 });
@@ -339,8 +353,8 @@ function handlePointerEnd(e) {
 
   const stroke = activePointers.get(e.pointerId);
 
-  if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2 && !stroke.isInvalidated) {
-    // Connect the very last point seamlessly
+  // Connect the very last point seamlessly for freehand/erasers
+  if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2) {
     const pts = stroke.points;
     const p0 = pts[stroke.lastRenderedIndex - 1] || pts[0];
     const curr = pts[pts.length - 1];
@@ -348,7 +362,8 @@ function handlePointerEnd(e) {
     ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.lineCap = 'round';
     ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.tool === 'eraser' ? stroke.size * 8 : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
+    const eraserSize = stroke.isPalm ? 150 : (stroke.size * 8);
+    ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
     ctx.beginPath();
     ctx.moveTo((p0.x + curr.x) / 2, (p0.y + curr.y) / 2);
@@ -356,16 +371,18 @@ function handlePointerEnd(e) {
     ctx.stroke();
   }
 
-  if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
+  // Stamp finished shapes
+  if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) && !stroke.isPalm) {
     stampShapeToMain(stroke);
   }
 
   activePointers.delete(e.pointerId);
-  currentPalmCenter = checkPalmStatus();
 
+  needsDraftRender = true; // Clean up draft visualizers
+  
+  // Only save state if no one else is currently drawing
   if (activePointers.size === 0) {
-    needsDraftRender = true; 
-    saveState(); // Commit to GPU cache
+    saveState(); 
   }
 }
 
