@@ -2,13 +2,13 @@
 
 // 1. Palm Eraser Size: Change this to make the visual and physical eraser larger or smaller.
 // A radius of 50 means the eraser is 100 pixels wide.
-const PALM_ERASER_RADIUS = 35;
+const PALM_ERASER_RADIUS = 45;
 
 // 2. Palm Detection Sensitivity: Increase these to make it HARDER to accidentally trigger the palm eraser.
 // - Jitter Ratio: How much the touch vibrates compared to a straight line (Normal pen is ~1.0).
-const PALM_JITTER_RATIO_THRESHOLD = 5; 
+const PALM_JITTER_RATIO_THRESHOLD = 4.5; 
 // - Direction Reversals: How many times the touch changes X/Y direction rapidly.
-const PALM_REVERSAL_THRESHOLD = 5;     
+const PALM_REVERSAL_THRESHOLD = 4;     
 
 
 // --- INITIALIZATION ---
