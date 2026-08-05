@@ -1,8 +1,6 @@
-import './styles.css';
-
 // --- CONFIGURATION ---
 const PALM_ERASER_RADIUS = 50; 
-const CLUSTER_PROXIMITY_RADIUS = 150; // The 5 fingers must be within this pixel distance
+const CLUSTER_PROXIMITY_RADIUS = 150; // The 2 fingers must be within this pixel distance to trigger the eraser
 
 // --- CANVAS SETUP ---
 const canvas = document.getElementById('board');
@@ -59,7 +57,7 @@ function initCanvas() {
   ctx.scale(dpr, dpr);
   draftCtx.scale(dpr, dpr);
   
-  // Force a CSS background so the eraser can use true transparency
+  // Force a CSS background so the eraser uses true transparency instead of painting white
   canvas.style.backgroundColor = '#f8f9fa';
   ctx.clearRect(0, 0, w, h);
   
@@ -96,19 +94,24 @@ function loadPage(index) {
 }
 
 function updatePaginationUI() {
-  document.getElementById('pageDisplay').textContent = `${currentPageIndex + 1}/${pagesData.length}`;
+  const pageDisplay = document.getElementById('pageDisplay');
+  if (pageDisplay) pageDisplay.textContent = `${currentPageIndex + 1}/${pagesData.length}`;
   
   const prevBtn = document.getElementById('btnPrevPage');
   const nextBtn = document.getElementById('btnNextPage');
   
-  if (currentPageIndex === 0) prevBtn.classList.add('disabled');
-  else prevBtn.classList.remove('disabled');
+  if (prevBtn) {
+    if (currentPageIndex === 0) prevBtn.classList.add('disabled');
+    else prevBtn.classList.remove('disabled');
+  }
   
-  if (currentPageIndex === pagesData.length - 1) nextBtn.classList.add('disabled');
-  else nextBtn.classList.remove('disabled');
+  if (nextBtn) {
+    if (currentPageIndex === pagesData.length - 1) nextBtn.classList.add('disabled');
+    else nextBtn.classList.remove('disabled');
+  }
 }
 
-document.getElementById('btnAddPage').addEventListener('click', () => {
+document.getElementById('btnAddPage')?.addEventListener('click', () => {
   syncCurrentPage();
   pagesData.push({ shapes: [], undoStack: [], redoStack: [] });
   currentPageIndex = pagesData.length - 1;
@@ -122,11 +125,11 @@ document.getElementById('btnAddPage').addEventListener('click', () => {
   updatePaginationUI();
 });
 
-document.getElementById('btnPrevPage').addEventListener('click', () => {
+document.getElementById('btnPrevPage')?.addEventListener('click', () => {
   if (currentPageIndex > 0) loadPage(currentPageIndex - 1);
 });
 
-document.getElementById('btnNextPage').addEventListener('click', () => {
+document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
@@ -140,35 +143,41 @@ document.querySelectorAll('.tool').forEach(button => {
     e.currentTarget.classList.add('active');
     currentTool = e.currentTarget.dataset.tool;
 
-    if (['pen', 'marker', 'highlighter', 'eraser'].includes(currentTool)) {
-      sizePopover.classList.remove('hidden');
-    } else {
-      sizePopover.classList.add('hidden');
+    if (sizePopover) {
+      if (['pen', 'marker', 'highlighter', 'eraser'].includes(currentTool)) {
+        sizePopover.classList.remove('hidden');
+      } else {
+        sizePopover.classList.add('hidden');
+      }
     }
   });
 });
 
-canvas.addEventListener('pointerdown', () => sizePopover.classList.add('hidden'));
-
-document.getElementById('colorPicker').addEventListener('input', (e) => currentColor = e.target.value);
-document.getElementById('sizePicker').addEventListener('input', (e) => {
-  currentSize = parseInt(e.target.value, 10);
-  sizeValueDisplay.textContent = `${currentSize}px`; 
+canvas.addEventListener('pointerdown', () => {
+  if (sizePopover) sizePopover.classList.add('hidden');
 });
 
-document.getElementById('btnClear').addEventListener('click', () => {
+document.getElementById('colorPicker')?.addEventListener('input', (e) => currentColor = e.target.value);
+document.getElementById('sizePicker')?.addEventListener('input', (e) => {
+  currentSize = parseInt(e.target.value, 10);
+  if (sizeValueDisplay) {
+    sizeValueDisplay.textContent = `${currentSize}px`; 
+  }
+});
+
+document.getElementById('btnClear')?.addEventListener('click', () => {
   shapes = []; 
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
   saveState();
 });
 
-document.getElementById('btnExport').addEventListener('click', () => {
+document.getElementById('btnExport')?.addEventListener('click', () => {
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = canvas.width;
   tempCanvas.height = canvas.height;
   const tCtx = tempCanvas.getContext('2d');
   
-  // Fill the exported image with the background color so it isn't transparent
+  // Fill the exported image with the background color so the transparent erasing shows properly
   tCtx.fillStyle = '#f8f9fa';
   tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
   tCtx.drawImage(canvas, 0, 0);
@@ -206,14 +215,14 @@ function restoreState(sourceCanvas) {
   ctx.restore();
 }
 
-document.getElementById('btnUndo').addEventListener('click', () => {
+document.getElementById('btnUndo')?.addEventListener('click', () => {
   if (undoStack.length > 1) {
     redoStack.push(undoStack.pop());
     restoreState(undoStack[undoStack.length - 1]);
   }
 });
 
-document.getElementById('btnRedo').addEventListener('click', () => {
+document.getElementById('btnRedo')?.addEventListener('click', () => {
   if (redoStack.length > 0) {
     const nextState = redoStack.pop();
     undoStack.push(nextState);
@@ -221,11 +230,12 @@ document.getElementById('btnRedo').addEventListener('click', () => {
   }
 });
 
-// --- 5-FINGER PALM DETECTION ENGINE ---
+// --- 2-FINGER PALM DETECTION ENGINE ---
 let palmActive = false;
 let palmPoints = [];
 
 function checkPalmStatus() {
+  // Requires exactly 2 or more touches to activate the eraser
   if (activePointers.size < 2) return null;
 
   let cx = 0, cy = 0;
@@ -237,7 +247,7 @@ function checkPalmStatus() {
   cx /= activePointers.size;
   cy /= activePointers.size;
 
-  // Check if the 5 fingers are clustered closely together (a palm) or spread out (multiple people)
+  // Check if the 2 fingers are clustered closely together (an eraser gesture) or spread out (2 people drawing)
   for (let p of activePointers.values()) {
     const pt = p.points[p.points.length - 1];
     if (Math.hypot(pt.x - cx, pt.y - cy) > CLUSTER_PROXIMITY_RADIUS) {
@@ -245,7 +255,7 @@ function checkPalmStatus() {
     }
   }
 
-  // It is a palm! Invalidate the individual fingers so they instantly stop drawing ink
+  // It is a valid 2-finger eraser! Invalidate the individual fingers so they instantly stop drawing ink
   activePointers.forEach(p => p.isInvalidated = true);
   return { x: cx, y: cy };
 }
@@ -403,28 +413,6 @@ function redrawBoard() {
     }
     ctx.restore();
   });
-}
-
-function stampShapeToMain(stroke) {
-  if (stroke.isInvalidated) return;
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-  const tempCtx = tempCanvas.getContext('2d');
-  
-  const dpr = window.devicePixelRatio || 1;
-  tempCtx.scale(dpr, dpr);
-  drawShapeOnContext(tempCtx, stroke);
-
-  ctx.save();
-  if (stroke.tool === 'highlighter') {
-    ctx.globalAlpha = 0.4;
-    ctx.globalCompositeOperation = 'multiply';
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-  }
-  ctx.drawImage(tempCanvas, 0, 0, canvas.width / dpr, canvas.height / dpr);
-  ctx.restore();
 }
 
 // --- OPTIMIZED DRAFT RENDER LOOP ---
@@ -602,7 +590,24 @@ function handlePointerEnd(e) {
     }
 
     if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool)) {
-      stampShapeToMain(stroke);
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      tempCtx.scale(dpr, dpr);
+      
+      drawShapeOnContext(tempCtx, stroke);
+      ctx.save();
+      if (stroke.tool === 'highlighter') {
+        ctx.globalAlpha = 0.4;
+        ctx.globalCompositeOperation = 'multiply';
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.drawImage(tempCanvas, 0, 0, canvas.width / dpr, canvas.height / dpr);
+      ctx.restore();
+
       const pts = stroke.points;
       if (pts.length >= 2) {
         const start = pts[0];
@@ -625,8 +630,8 @@ function handlePointerEnd(e) {
 
   activePointers.delete(e.pointerId);
 
-  // If the palm has lifted (drops below 5 fingers), tie off the palm stroke
-  if (palmActive && activePointers.size < 5) {
+  // If the palm has lifted (drops below 2 fingers), tie off the palm stroke
+  if (palmActive && activePointers.size < 2) {
     if (palmPoints.length > 0) {
       shapes.push({
         tool: 'eraser',
