@@ -2,7 +2,7 @@
 const PALM_ERASER_RADIUS = 45;
 
 // Increased thresholds to prevent handwriting from activating the eraser
-const PALM_JITTER_RATIO_THRESHOLD = 12.0; 
+const PALM_JITTER_RATIO_THRESHOLD = 2.0; 
 const PALM_REVERSAL_THRESHOLD = 12;
 
 
