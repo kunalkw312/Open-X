@@ -1,5 +1,20 @@
+// --- CONFIGURATION ---
+
+// 1. Palm Eraser Size: Change this to make the visual and physical eraser larger or smaller.
+// A radius of 50 means the eraser is 100 pixels wide.
+const PALM_ERASER_RADIUS = 50;
+
+// 2. Palm Detection Sensitivity: Increase these to make it HARDER to accidentally trigger the palm eraser.
+// - Jitter Ratio: How much the touch vibrates compared to a straight line (Normal pen is ~1.0).
+const PALM_JITTER_RATIO_THRESHOLD = 3.5; 
+// - Direction Reversals: How many times the touch changes X/Y direction rapidly.
+const PALM_REVERSAL_THRESHOLD = 6;     
+
+
+// --- INITIALIZATION ---
 const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d', { alpha: false }); // Disabling alpha on main canvas increases GPU compositing speed
+// Removed { alpha: false } so 'destination-out' erasing works correctly again
+const ctx = canvas.getContext('2d'); 
 
 // --- DUAL CANVAS SETUP ---
 const draftCanvas = document.createElement('canvas');
@@ -20,6 +35,7 @@ let currentSize = 4;
 
 const activePointers = new Map(); 
 
+// GPU-Accelerated Undo/Redo using offscreen canvases
 let undoStack = [];
 let redoStack = [];
 const MAX_HISTORY = 15;
@@ -137,10 +153,10 @@ let needsDraftRender = false;
 
 // BEHAVIORAL PALM DETECTION (Using Jitter Heuristics)
 function analyzeBehavioralPalm(stroke) {
-  if (stroke.isPalm) return true; // Once flagged as palm, stays a palm
+  if (stroke.isPalm) return true; 
   
   const pts = stroke.points;
-  const SAMPLE_SIZE = 8; // Look at the last 8 micro-movements
+  const SAMPLE_SIZE = 8; 
   
   if (pts.length < SAMPLE_SIZE) return false;
 
@@ -157,7 +173,6 @@ function analyzeBehavioralPalm(stroke) {
     const dy = pts[i].y - pts[i - 1].y;
     dist += Math.hypot(dx, dy);
 
-    // Count directional reversals
     if ((dx > 0 && lastDx < 0) || (dx < 0 && lastDx > 0)) revs++;
     if ((dy > 0 && lastDy < 0) || (dy < 0 && lastDy > 0)) revs++;
 
@@ -168,13 +183,10 @@ function analyzeBehavioralPalm(stroke) {
   const linearDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
   const ratio = linearDist === 0 ? 0 : dist / linearDist;
 
-  // If the stroke vibrates heavily (ratio > 2.5 or high reversals), it's a palm.
-  if (ratio > 2.5 || revs >= 4) {
+  // Uses the configuration variables defined at the top of the file
+  if (ratio > PALM_JITTER_RATIO_THRESHOLD || revs >= PALM_REVERSAL_THRESHOLD) {
     stroke.isPalm = true;
-    stroke.tool = 'eraser'; // Hijack the stroke and turn it into an eraser!
-    
-    // The giant eraser will instantly swallow the tiny bit of accidental pen ink 
-    // it might have drawn during the first 50ms of detection.
+    stroke.tool = 'eraser'; 
     return true; 
   }
   
@@ -194,8 +206,8 @@ function drawBatch(stroke) {
   ctx.lineJoin = 'round';
   ctx.strokeStyle = stroke.color;
   
-  // Base sizing logic. If it was flagged as a palm via heuristics, make it massive.
-  const eraserSize = stroke.isPalm ? 150 : (stroke.size * 8);
+  // Apply the custom palm eraser radius
+  const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
   ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
   ctx.beginPath();
@@ -283,7 +295,8 @@ function renderDraftLayer() {
         const pt = stroke.points[stroke.points.length - 1];
         draftCtx.globalCompositeOperation = 'source-over';
         draftCtx.beginPath();
-        draftCtx.arc(pt.x, pt.y, 75, 0, Math.PI * 2);
+        // Uses the configuration variable
+        draftCtx.arc(pt.x, pt.y, PALM_ERASER_RADIUS, 0, Math.PI * 2);
         draftCtx.fillStyle = 'rgba(150, 150, 150, 0.5)';
         draftCtx.fill();
         draftCtx.lineWidth = 2;
@@ -311,7 +324,7 @@ canvas.addEventListener('pointerdown', (e) => {
     size: currentSize,
     points: [coords],
     lastRenderedIndex: 1,
-    isPalm: false // Will be dynamically updated
+    isPalm: false 
   });
 
   if (['pen', 'marker', 'eraser'].includes(tool)) {
@@ -334,14 +347,12 @@ canvas.addEventListener('pointermove', (e) => {
     stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
 
-  // Check if this specific stroke behaves like a palm
   analyzeBehavioralPalm(stroke);
 
   if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
     drawBatch(stroke);
   }
   
-  // Trigger draft render for shapes, highlighters, or visual palm circles
   if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) || stroke.isPalm) {
     needsDraftRender = true;
   }
@@ -353,7 +364,6 @@ function handlePointerEnd(e) {
 
   const stroke = activePointers.get(e.pointerId);
 
-  // Connect the very last point seamlessly for freehand/erasers
   if (['pen', 'marker', 'eraser'].includes(stroke.tool) && stroke.points.length >= 2) {
     const pts = stroke.points;
     const p0 = pts[stroke.lastRenderedIndex - 1] || pts[0];
@@ -362,7 +372,9 @@ function handlePointerEnd(e) {
     ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.lineCap = 'round';
     ctx.strokeStyle = stroke.color;
-    const eraserSize = stroke.isPalm ? 150 : (stroke.size * 8);
+    
+    // Uses the configuration variable
+    const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
     ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
 
     ctx.beginPath();
@@ -371,16 +383,14 @@ function handlePointerEnd(e) {
     ctx.stroke();
   }
 
-  // Stamp finished shapes
   if (['line', 'rect', 'circle', 'highlighter'].includes(stroke.tool) && !stroke.isPalm) {
     stampShapeToMain(stroke);
   }
 
   activePointers.delete(e.pointerId);
 
-  needsDraftRender = true; // Clean up draft visualizers
+  needsDraftRender = true; 
   
-  // Only save state if no one else is currently drawing
   if (activePointers.size === 0) {
     saveState(); 
   }
