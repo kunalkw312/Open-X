@@ -114,7 +114,7 @@
     <div class="popover-arrow"></div>
     <div style="font-size: 12px; font-weight: 700; margin-bottom: 12px; color: var(--tb-text); text-transform: uppercase;">Tool Color</div>
     <div id="colorGrid" class="color-grid">
-      <!-- Color buttons (and the rainbow shortcut) dynamically injected by app.js -->
+      <!-- Color buttons dynamically injected by app.js -->
     </div>
   </div>
 
@@ -162,9 +162,6 @@
 
     <!-- Actions, Save & More Menu -->
     <div class="tool-group">
-      
-      <!-- Native Color Picker (Now linked to the active tool + acts as the rainbow picker) -->
-      <input type="color" id="colorPicker" value="#000000" title="Custom Rainbow Color" style="margin-right: 4px;">
       
       <button id="btnUndo" class="tool" title="Undo">
         <svg viewBox="0 0 24 24"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
@@ -220,7 +217,7 @@
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; padding: 0 4px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--tb-text);">Custom Color:</span>
-            <input type="color" id="bg-custom" value="#ffffff" style="border:none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;">
+            <input type="color" id="bg-custom" value="#ffffff" style="border:none; width: 28px; height: 28px; border-radius: 8px; cursor: pointer;">
           </div>
           
           <div class="menu-section-title" style="margin-top: 12px;">Pattern Overlay</div>
