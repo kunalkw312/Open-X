@@ -7,44 +7,6 @@
   <link rel="stylesheet" href="styles.css">
   <!-- jsPDF Library for Multi-page PDF Export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-  <!-- Layout Overrides for the 3-Part IFP Toolbar -->
-  <style>
-    /* Reset original toolbar positioning */
-    .toolbar-container {
-      bottom: auto; 
-      left: auto; 
-      transform: none;
-    }
-    
-    /* 1. Main Drawing Tools - Bottom Center */
-    .toolbar-bottom {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-    }
-    
-    /* 2. Shapes & Media - Middle Left (Vertical Panel) */
-    .toolbar-left {
-      position: fixed;
-      left: 20px;
-      top: 50%;
-      transform: translateY(-50%);
-      flex-direction: column;
-      padding: 14px 8px; /* Taller padding for vertical */
-    }
-    .toolbar-left .tool-group {
-      flex-direction: column;
-    }
-    
-    /* 3. Board Controls & Export - Bottom Right */
-    .toolbar-right {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-    }
-  </style>
 </head>
 <body>
 
@@ -53,20 +15,42 @@
   <input type="file" id="imageInput" accept="image/*" class="hidden">
   <input type="file" id="projectInput" accept=".oxsb" class="hidden">
 
-  <!-- Dynamic Size Popover -->
+  <!-- Dynamic Size Popover (Slider Hidden for Swipe-to-Size) -->
   <div id="size-popover" class="size-popover hidden">
     <div class="size-preview">
       <div id="sizePreviewCircle" class="size-preview-circle"></div>
     </div>
-    <input type="range" id="sizePicker" min="1" max="50" value="4">
-    <span id="sizeValue" style="font-size: 12px; font-weight: 600; color: #475569; min-width: 28px;">4px</span>
+    <input type="range" id="sizePicker" min="1" max="50" value="4" style="display: none;">
+    <span id="sizeValue" style="font-size: 14px; font-weight: 700; color: #475569; min-width: 32px;">4px</span>
   </div>
 
+  <!-- ========================================== -->
+  <!-- MAIN TOOLBAR (Floating Bottom Center)      -->
+  <!-- ========================================== -->
+  <div class="toolbar-container toolbar-bottom">
+    
+    <!-- Drawing & Selection Tools -->
+    <div class="tool-group">
+      <button class="tool active" data-tool="pen" title="Pen (Hold & Swipe Up/Down for Size)">
+        <svg viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+      </button>
+      <button class="tool" data-tool="marker" title="Marker (Hold & Swipe Up/Down for Size)">
+        <svg viewBox="0 0 24 24"><path d="m15 5 4 4"/><path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13"/><path d="m8 6 2-2"/><path d="m18 16 2-2"/><path d="m17 11 4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
+      </button>
+      <button class="tool" data-tool="highlighter" title="Highlighter (Hold & Swipe Up/Down for Size)">
+        <svg viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+      </button>
+      <button class="tool" data-tool="eraser" title="Eraser (Hold & Swipe Up/Down for Size)">
+        <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+      </button>
+      <button class="tool" data-tool="select" title="Select / Lasso">
+        <svg viewBox="0 0 24 24"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+      </button>
+    </div>
 
-  <!-- ========================================== -->
-  <!-- PART 1: SHAPES & MEDIA (Floating Left)       -->
-  <!-- ========================================== -->
-  <div class="toolbar-container toolbar-left">
+    <div class="divider"></div>
+
+    <!-- Shape Tools -->
     <div class="tool-group">
       <button class="tool" data-tool="line" title="Line">
         <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
@@ -77,50 +61,11 @@
       <button class="tool" data-tool="circle" title="Circle">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>
       </button>
-      
-      <!-- Mini Horizontal Divider for Vertical Layout -->
-      <div style="width: 24px; height: 1px; background-color: #e2e8f0; margin: 4px 0;"></div>
-      
-      <button class="tool" data-tool="text" title="Add Text">
-        <svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
-      </button>
-      <button class="tool" data-tool="sticky" title="Sticky Note">
-        <svg viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"></path><path d="M15 3v5h5"></path></svg>
-      </button>
-      <button class="tool" data-tool="image" title="Insert Image">
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-      </button>
-    </div>
-  </div>
-
-
-  <!-- ========================================== -->
-  <!-- PART 2: MAIN DRAWING (Floating Bottom Ctr)   -->
-  <!-- ========================================== -->
-  <div class="toolbar-container toolbar-bottom">
-    
-    <!-- Drawing & Selection Tools -->
-    <div class="tool-group">
-      <button class="tool active" data-tool="pen" title="Pen">
-        <svg viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
-      </button>
-      <button class="tool" data-tool="marker" title="Marker">
-        <svg viewBox="0 0 24 24"><path d="m15 5 4 4"/><path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13"/><path d="m8 6 2-2"/><path d="m18 16 2-2"/><path d="m17 11 4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
-      </button>
-      <button class="tool" data-tool="highlighter" title="Highlighter">
-        <svg viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
-      </button>
-      <button class="tool" data-tool="eraser" title="Eraser">
-        <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
-      </button>
-      <button class="tool" data-tool="select" title="Select / Lasso">
-        <svg viewBox="0 0 24 24"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
-      </button>
     </div>
 
     <div class="divider"></div>
 
-    <!-- Color Picker & Board History -->
+    <!-- Actions & More Menu -->
     <div class="tool-group">
       <input type="color" id="colorPicker" value="#000000" title="Choose Color">
       <button id="btnUndo" class="tool" title="Undo">
@@ -132,13 +77,36 @@
       <button id="btnClear" class="tool" title="Clear Canvas">
         <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
       </button>
+
+      <!-- Three Dot "More" Menu -->
+      <div class="more-menu-container" style="position: relative;">
+        <button id="btnMore" class="tool" title="More Options">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>
+        </button>
+        <!-- Dropdown Content -->
+        <div id="moreDropdownMenu" class="dropdown-menu hidden" style="width: 170px; bottom: 50px; left: -85px;">
+          <div class="menu-section-title">Insert Media</div>
+          <button class="menu-btn tool-trigger" data-tool="text" style="text-align: left; display: flex; align-items: center; gap: 8px;">
+            <svg style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+            Add Text
+          </button>
+          <button class="menu-btn tool-trigger" data-tool="sticky" style="text-align: left; display: flex; align-items: center; gap: 8px;">
+            <svg style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"></path><path d="M15 3v5h5"></path></svg>
+            Sticky Note
+          </button>
+          <button class="menu-btn tool-trigger" data-tool="image" style="text-align: left; display: flex; align-items: center; gap: 8px;">
+            <svg style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            Insert Image
+          </button>
+        </div>
+      </div>
     </div>
 
   </div>
 
 
   <!-- ========================================== -->
-  <!-- PART 3: BOARD CONTROLS (Floating Right)      -->
+  <!-- BOARD CONTROLS (Floating Bottom Right)     -->
   <!-- ========================================== -->
   <div class="toolbar-container toolbar-right">
     
@@ -165,7 +133,7 @@
         <button id="btnSettings" class="tool" title="Board Settings">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
-        <div id="settingsDropdownMenu" class="dropdown-menu hidden">
+        <div id="settingsDropdownMenu" class="dropdown-menu hidden" style="width: 220px; right: -85px;">
           <div class="menu-section-title">Background Color</div>
           <div class="menu-option-grid">
             <button id="bg-white" class="menu-btn">White</button>
@@ -189,7 +157,7 @@
         <button id="btnMainExport" class="tool" title="Export / Save">
           <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
         </button>
-        <div id="exportDropdownMenu" class="dropdown-menu hidden">
+        <div id="exportDropdownMenu" class="dropdown-menu hidden" style="width: 220px; right: 0px;">
           <div class="menu-section-title">Project File</div>
           <button id="btnSaveCurrent" class="menu-btn" style="text-align: left;">Save Current Page (.oxsb)</button>
           <button id="btnSaveAll" class="menu-btn" style="text-align: left;">Save Full Project (.oxsb)</button>
