@@ -1,24 +1,32 @@
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
 
-// Base color palette for horizontal swiping
-const SWIPE_COLORS = ['#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#ffffff'];
-
-let currentTool = 'pen';
-let currentColor = '#000000';
-
-const toolMaxSizes = {
-  pen: 50, marker: 100, highlighter: 100, eraser: 100,
-  line: 50, rect: 50, circle: 50, text: 50
+// --- TOOL MEMORY CONFIGURATION ---
+const toolColors = {
+  pen: '#000000', marker: '#000000', highlighter: '#facc15', eraser: '#000000',
+  line: '#000000', rect: '#000000', circle: '#000000'
 };
 
 const toolSizes = {
-  pen: 4, marker: 8, highlighter: 30, eraser: 40,
-  line: 4, rect: 4, circle: 4, text: 4
+  pen: 4, marker: 10, highlighter: 30, eraser: 40,
+  line: 4, rect: 4, circle: 4
 };
 
+const toolMaxSizes = {
+  pen: 50, marker: 100, highlighter: 100, eraser: 100,
+  line: 50, rect: 50, circle: 50
+};
+
+const SWIPE_COLORS = ['#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#ffffff'];
+
+let currentTool = 'pen';
+let currentColor = toolColors.pen;
 let currentSize = toolSizes.pen;
 let markerManuallyChanged = false;
+
+// --- MULTI-TAP POPUP STATE ---
+let tapCount = 0;
+let tapTimeout = null;
 
 // Load persisted background state or default
 let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#121212'; 
@@ -345,38 +353,27 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- GLOBAL DIRECT SWIPE LOGIC (NO TIMER) ---
+// --- MULTI-TAP & RESTING-STEP SLIDER LOGIC ---
 const sizePopover = document.getElementById('size-popover');
-const sizeValueDisplay = document.getElementById('sizeValue');
-const sizePreviewCircle = document.getElementById('sizePreviewCircle');
+const colorPopover = document.getElementById('color-popover');
+const sizeRangeInput = document.getElementById('sizeRangeInput');
+const sizeValueDisplay = document.getElementById('sizeValueDisplay');
+const toolColorPicker = document.getElementById('toolColorPicker');
 const colorPicker = document.getElementById('colorPicker');
 
-let toolDragActive = false;
-let dragAxis = null; // 'x' for color, 'y' for size
-let toolDragLastY = 0;
-let toolDragStartX = 0;
-let toolDragStartY = 0;
-let swipeColorIndex = 0;
-
-function updateSizePreview() {
-  if (sizePreviewCircle) {
-    sizePreviewCircle.style.width = `${currentSize}px`;
-    sizePreviewCircle.style.height = `${currentSize}px`;
-    sizePreviewCircle.style.backgroundColor = currentColor;
-  }
+function hideAllPopovers() {
+  if (sizePopover) sizePopover.classList.add('hidden');
+  if (colorPopover) colorPopover.classList.add('hidden');
 }
 
-function updateColorStrip() {
-  document.querySelectorAll('.color-dot').forEach((dot, i) => {
-    if (i === swipeColorIndex) {
-      dot.style.transform = 'scale(1.5)';
-      dot.style.boxShadow = '0 0 0 2px var(--tb-bg), 0 0 0 4px var(--tb-text)';
-    } else {
-      dot.style.transform = 'scale(1)';
-      dot.style.boxShadow = 'none';
-    }
-  });
+function updateToolIconColor(toolName, colorHex) {
+  const btn = document.querySelector(`.tool[data-tool="${toolName}"]`);
+  if (btn) btn.style.color = colorHex;
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  Object.keys(toolColors).forEach(t => updateToolIconColor(t, toolColors[t]));
+});
 
 function handleToolAction(selectedTool) {
   if (selectedTool === 'sticky') {
@@ -411,12 +408,10 @@ function handleToolAction(selectedTool) {
 
 document.addEventListener('click', (e) => {
   const trigger = e.target.closest('.tool-trigger');
-  if (trigger) {
-    handleToolAction(trigger.dataset.tool);
-  }
+  if (trigger) handleToolAction(trigger.dataset.tool);
 });
 
-// 1. Tool Pressed - Set Active immediately and capture pointer for IFP tracking
+// Single, Double, and Triple Tap Handlers for IR Touch panels
 document.querySelectorAll('.tool').forEach(button => {
   button.oncontextmenu = (e) => e.preventDefault();
 
@@ -429,47 +424,92 @@ document.querySelectorAll('.tool').forEach(button => {
       return;
     }
 
-    // Instantly activate tool
-    document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
-    e.currentTarget.classList.add('active');
-    
-    currentTool = selectedTool;
-    currentSize = toolSizes[currentTool];
-    updateSizePreview();
+    tapCount++;
 
-    if (['pen', 'marker', 'highlighter', 'eraser', 'line', 'rect', 'circle'].includes(currentTool)) {
-      toolDragActive = true;
-      dragAxis = null;
-      toolDragStartX = e.clientX;
-      toolDragStartY = e.clientY;
-      toolDragLastY = e.clientY;
+    if (tapCount === 1) {
+      tapTimeout = setTimeout(() => {
+        // --- SINGLE TAP: Select Tool ---
+        hideAllPopovers();
+        document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
+        e.currentTarget.classList.add('active');
+        
+        currentTool = selectedTool;
+        currentColor = toolColors[currentTool];
+        currentSize = toolSizes[currentTool];
+        
+        if (colorPicker) colorPicker.value = currentColor;
+        tapCount = 0;
+      }, 350);
+    } 
+    else if (tapCount === 2) {
+      // --- DOUBLE TAP: Size Pop-up with Resting Steps ---
+      clearTimeout(tapTimeout);
+      hideAllPopovers();
+      
+      currentTool = selectedTool;
+      currentColor = toolColors[currentTool];
+      currentSize = toolSizes[currentTool];
 
-      swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
-      if (swipeColorIndex === -1) swipeColorIndex = 0;
+      if (sizeRangeInput && sizeValueDisplay && sizePopover) {
+        let max = toolMaxSizes[currentTool] || 50;
+        sizeRangeInput.max = max;
+        
+        // Resting steps: 5px for pen, 10px for marker, 1px for others
+        if (currentTool === 'pen') sizeRangeInput.step = "5";
+        else if (currentTool === 'marker') sizeRangeInput.step = "10";
+        else sizeRangeInput.step = "1";
 
-      // CRITICAL IFP FIX: Forces the panel to keep tracking this finger even outside the button
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
+        sizeRangeInput.value = currentSize;
+        sizeValueDisplay.textContent = `${currentSize}px`;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        sizePopover.style.left = `${rect.left + rect.width / 2}px`;
+        sizePopover.style.top = `${rect.top - 65}px`;
+        sizePopover.classList.remove('hidden');
+      }
+
+      tapTimeout = setTimeout(() => { tapCount = 0; }, 350);
+    } 
+    else if (tapCount >= 3) {
+      // --- TRIPLE TAP: Color Picker for this Tool ---
+      clearTimeout(tapTimeout);
+      hideAllPopovers();
+
+      currentTool = selectedTool;
+      if (toolColorPicker && colorPopover) {
+        toolColorPicker.value = toolColors[currentTool];
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        colorPopover.style.left = `${rect.left + rect.width / 2}px`;
+        colorPopover.style.top = `${rect.top - 65}px`;
+        colorPopover.classList.remove('hidden');
+      }
+
+      tapCount = 0;
     }
   });
+});
 
-  // Ensure capture is cleanly released when finishing the gesture
-  button.addEventListener('pointerup', (e) => {
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
-    if (toolDragActive) {
-      toolDragActive = false;
-      dragAxis = null;
-      if (sizePopover) sizePopover.classList.add('hidden');
-    }
-  });
+// Pop-up Slider & Color Input Listeners
+sizeRangeInput?.addEventListener('input', (e) => {
+  let val = parseInt(e.target.value, 10);
+  toolSizes[currentTool] = val;
+  currentSize = val;
+  if (sizeValueDisplay) sizeValueDisplay.textContent = `${val}px`;
+});
 
-  button.addEventListener('pointercancel', (e) => {
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
-    if (toolDragActive) {
-      toolDragActive = false;
-      dragAxis = null;
-      if (sizePopover) sizePopover.classList.add('hidden');
-    }
-  });
+toolColorPicker?.addEventListener('input', (e) => {
+  let col = e.target.value;
+  toolColors[currentTool] = col;
+  currentColor = col;
+  updateToolIconColor(currentTool, col);
+  
+  if (colorPicker) colorPicker.value = col;
+});
+
+// Hide popovers when clicking on the canvas board
+canvas.addEventListener('pointerdown', () => {
+  hideAllPopovers();
 });
 
 // 2. Track Finger Globally - Lock Axis on first 15px movement
