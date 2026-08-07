@@ -100,8 +100,14 @@ function setToolSize(tool, size) {
 function updateToolIcons() {
   document.querySelectorAll('.tool[data-tool]').forEach(btn => {
     const tool = btn.dataset.tool;
-    if (toolColors[tool] && tool !== 'eraser') {
+    if (toolColors[tool] && tool !== 'eraser' && tool !== 'select') {
       btn.style.color = toolColors[tool];
+      
+      // Explicitly target the SVG to override any stubborn CSS
+      const svg = btn.querySelector('svg');
+      if (svg) {
+         svg.style.stroke = toolColors[tool];
+      }
     }
   });
 }
@@ -167,6 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Inject Color Palette for Triple Tap Popover
   const colorGrid = document.getElementById('colorGrid');
   if (colorGrid) {
+    colorGrid.innerHTML = '';
     SWIPE_COLORS.forEach(color => {
       const btn = document.createElement('button');
       btn.className = 'color-btn';
@@ -174,12 +181,25 @@ document.addEventListener("DOMContentLoaded", () => {
       if (color === '#ffffff') btn.style.border = '1px solid #cbd5e1';
       btn.addEventListener('click', () => {
         toolColors[currentTool] = color;
-        currentColor = color; // Update active drawing color
+        currentColor = color; 
         updateToolIcons();
+        const cPicker = document.getElementById('colorPicker');
+        if (cPicker) cPicker.value = color;
         document.getElementById('color-popover').classList.add('hidden');
       });
       colorGrid.appendChild(btn);
     });
+    
+    // Inject Custom Rainbow Button 
+    const rainbowBtn = document.createElement('button');
+    rainbowBtn.className = 'color-btn';
+    rainbowBtn.style.background = 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)';
+    rainbowBtn.title = "Custom Color";
+    rainbowBtn.addEventListener('click', () => {
+      document.getElementById('color-popover').classList.add('hidden');
+      document.getElementById('colorPicker')?.click();
+    });
+    colorGrid.appendChild(rainbowBtn);
   }
 
   const loader = document.createElement('div');
@@ -385,11 +405,12 @@ function positionPopover(popover, targetBtn) {
   popover.style.visibility = 'hidden'; 
   popover.classList.remove('hidden');
   
-  // Allow DOM to compute dimensions, then anchor perfectly based on targetBtn bounds
+  // Hard mathematical positioning ensures it tracks directly above the exact tool button
   requestAnimationFrame(() => {
     const rect = targetBtn.getBoundingClientRect();
     popover.style.left = `${rect.left + (rect.width / 2)}px`;
     popover.style.top = `${rect.top - popover.offsetHeight - 15}px`; 
+    popover.style.transform = 'translateX(-50%)'; // Explicit transform enforces centering!
     popover.style.visibility = 'visible';
   });
 }
@@ -432,6 +453,19 @@ sizePicker?.addEventListener('input', (e) => {
   if (sizeValueDisplay) sizeValueDisplay.textContent = `${val}px`;
   updateSizePreview();
 });
+
+// GLOBAL COLOR PICKER LOGIC
+const mainColorPicker = document.getElementById('colorPicker');
+if (mainColorPicker) {
+  mainColorPicker.addEventListener('input', (e) => {
+    currentColor = e.target.value;
+    if (currentTool && currentTool !== 'eraser' && currentTool !== 'select') {
+      toolColors[currentTool] = currentColor;
+      updateToolIcons();
+    }
+    updateSizePreview();
+  });
+}
 
 function handleToolAction(selectedTool) {
   if (selectedTool === 'sticky') {
@@ -497,6 +531,11 @@ document.querySelectorAll('.tool').forEach(button => {
       currentTool = selectedTool;
       currentColor = toolColors[currentTool] || '#000000';
       currentSize = toolSizes[currentTool] || 4;
+      
+      // Keep color picker accurately updated
+      if (mainColorPicker && currentColor) {
+         mainColorPicker.value = currentColor;
+      }
     } 
     // Tap 2: Open Size Slider
     else if (tapCounts[selectedTool] === 2) {
