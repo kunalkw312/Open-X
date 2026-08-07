@@ -1,4 +1,3 @@
-/* Add these styles to the top of styles.css */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -43,47 +42,13 @@ body, html {
   pointer-events: none; /* Prevents icons from blocking clicks */
 }
 
-/* (Leave the rest of your toolbar, dropdown, and sticky note CSS exactly as it was) */
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-body, html {
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background-color: #121212;
-}
-
-/* --- CANVAS LAYER ARCHITECTURE --- */
-#board, #bgBoard, #draftBoard {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  display: block;
-}
-
-/* --- FLOATING TOOLBAR --- */
+/* --- FLOATING TOOLBAR BASE --- */
 .toolbar-container {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 10000;
   display: flex;
-  align-items: center;
   gap: 8px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
-  padding: 8px 14px;
   border-radius: 16px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -102,6 +67,46 @@ body, html {
   margin: 0 4px;
 }
 
+/* --- 3-PART IFP LAYOUT ZONES --- */
+
+/* 1. Main Drawing Tools - Bottom Center */
+.toolbar-bottom {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  align-items: center;
+}
+
+/* 2. Shapes & Media - Middle Left (Vertical Panel) */
+.toolbar-left {
+  position: fixed;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  padding: 14px 8px;
+}
+.toolbar-left .tool-group {
+  flex-direction: column;
+}
+.toolbar-left .divider {
+  width: 24px;
+  height: 1px;
+  margin: 4px 0;
+}
+
+/* 3. Board Controls & Export - Bottom Right */
+.toolbar-right {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 8px 14px;
+  align-items: center;
+}
+
+/* --- TOOL BUTTONS --- */
 .tool {
   background: transparent;
   border: none;
@@ -155,9 +160,7 @@ input[type="color"]::-webkit-color-swatch {
 /* Size Slider Popover */
 .size-popover {
   position: fixed;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Coordinates are now injected directly by JS based on tool position */
   z-index: 10001;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
