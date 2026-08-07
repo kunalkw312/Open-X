@@ -1,5 +1,5 @@
-// Bump the version number to force the browser to update the cache for the new IFP layout updates
-const CACHE_NAME = 'smartboard-cache-v4'; 
+// Bumped to v5 to force the IFP to fetch all the new layout, color-swiping, and size logic updates!
+const CACHE_NAME = 'smartboard-cache-v5'; 
 
 const ASSETS_TO_CACHE = [
   './',
