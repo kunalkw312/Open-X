@@ -6,8 +6,9 @@ let currentTool = 'pen';
 let currentColor = '#000000';
 let currentSize = 4;
 
-let currentBgColor = '#ffffff'; 
-let currentBgPattern = 'plain'; // 'plain', 'grid', 'lines'
+// Load persisted background state or default
+let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#ffffff'; 
+let currentBgPattern = localStorage.getItem('smartboard_bgPattern') || 'plain'; 
 
 let shapes = []; 
 let selectedShapes = [];
@@ -60,11 +61,9 @@ const draftCtx = draftCanvas.getContext('2d');
 
 // --- BACKGROUND GENERATOR ---
 function drawBackground(targetCtx, w, h) {
-  // 1. Draw Base Color
   targetCtx.fillStyle = currentBgColor;
   targetCtx.fillRect(0, 0, w, h);
   
-  // 2. Calculate Contrast for Grid/Lines
   let hex = currentBgColor.replace('#', '');
   if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
   const r = parseInt(hex.substring(0,2), 16) || 255;
@@ -72,11 +71,9 @@ function drawBackground(targetCtx, w, h) {
   const b = parseInt(hex.substring(4,6), 16) || 255;
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   
-  // Light color = dark lines, Dark color = light lines
   targetCtx.strokeStyle = brightness > 130 ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.15)';
   targetCtx.lineWidth = 1;
 
-  // 3. Draw Pattern Overlay
   if (currentBgPattern === 'grid') {
     const spacing = 40;
     targetCtx.beginPath();
@@ -100,7 +97,11 @@ document.addEventListener("DOMContentLoaded", () => {
     pageDisplay.style.minWidth = '40px';
   }
 
-  // Loader Injection
+  const customBgInput = document.getElementById('bg-custom');
+  if (customBgInput && currentBgColor.startsWith('#')) {
+    customBgInput.value = currentBgColor.slice(0, 7);
+  }
+
   const loader = document.createElement('div');
   loader.id = 'export-loader';
   loader.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:999999;display:none;justify-content:center;align-items:center;color:white;font-size:24px;font-weight:bold;backdrop-filter:blur(4px);flex-direction:column;';
@@ -111,7 +112,6 @@ document.addEventListener("DOMContentLoaded", () => {
   `;
   document.body.appendChild(loader);
 
-  // Modal Overlay Injection
   const modalOverlay = document.createElement('div');
   modalOverlay.id = 'page-picker-modal';
   modalOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:999998;display:none;justify-content:center;align-items:center;backdrop-filter:blur(4px);';
@@ -149,7 +149,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if(callback) callback(selectedIndices);
   };
 
-  // --- BACKGROUND & SETTINGS MENU BINDINGS ---
   const btnSettings = document.getElementById('btnSettings');
   const settingsMenu = document.getElementById('settingsDropdownMenu');
   const exportMenu = document.getElementById('exportDropdownMenu');
@@ -162,19 +161,26 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle outside clicks for menus
   window.addEventListener('click', (e) => {
     if (!e.target.closest('.settings-menu-container')) settingsMenu?.classList.add('hidden');
     if (!e.target.closest('.export-menu-container')) exportMenu?.classList.add('hidden');
   });
 
-  const setBg = (color) => { currentBgColor = color; redrawBoard(); };
+  const setBg = (color) => { 
+    currentBgColor = color; 
+    localStorage.setItem('smartboard_bgColor', color); 
+    redrawBoard(); 
+  };
   document.getElementById('bg-white')?.addEventListener('click', () => setBg('#ffffff'));
   document.getElementById('bg-black')?.addEventListener('click', () => setBg('#1e1e1e'));
-  document.getElementById('bg-green')?.addEventListener('click', () => setBg('#1a4a28')); // Teacher Green
+  document.getElementById('bg-green')?.addEventListener('click', () => setBg('#1a4a28'));
   document.getElementById('bg-custom')?.addEventListener('input', (e) => setBg(e.target.value));
 
-  const setPat = (pat) => { currentBgPattern = pat; redrawBoard(); };
+  const setPat = (pat) => { 
+    currentBgPattern = pat; 
+    localStorage.setItem('smartboard_bgPattern', pat); 
+    redrawBoard(); 
+  };
   document.getElementById('pat-plain')?.addEventListener('click', () => setPat('plain'));
   document.getElementById('pat-grid')?.addEventListener('click', () => setPat('grid'));
   document.getElementById('pat-lines')?.addEventListener('click', () => setPat('lines'));
@@ -292,6 +298,9 @@ function updateSizePreview() {
 document.querySelectorAll('.tool').forEach(button => {
   button.addEventListener('click', (e) => {
     const selectedTool = e.currentTarget.dataset.tool;
+    
+    // Ignore clicks on action buttons (like clear, undo) that have no data-tool
+    if (!selectedTool) return;
 
     if (selectedTool === 'sticky') {
       createStickyNote();
@@ -302,14 +311,22 @@ document.querySelectorAll('.tool').forEach(button => {
       return;
     }
 
-    document.querySelectorAll('.tool').forEach(btn => btn.classList.remove('active'));
+    // Only clear the active state for other selectable tools
+    document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
     e.currentTarget.classList.add('active');
     currentTool = selectedTool;
 
     if (sizePopover) {
-      if (['pen', 'marker', 'highlighter', 'eraser'].includes(currentTool)) {
+      if (['pen', 'marker', 'highlighter', 'eraser', 'line', 'rect', 'circle'].includes(currentTool)) {
         sizePopover.classList.remove('hidden');
         updateSizePreview();
+        
+        // Dynamic positioning directly above the clicked tool
+        const rect = e.currentTarget.getBoundingClientRect();
+        sizePopover.style.position = 'fixed';
+        sizePopover.style.left = `${rect.left + (rect.width / 2)}px`;
+        sizePopover.style.bottom = `${window.innerHeight - rect.top + 15}px`;
+        sizePopover.style.transform = 'translateX(-50%)';
       } else {
         sizePopover.classList.add('hidden');
       }
@@ -336,6 +353,10 @@ document.getElementById('sizePicker')?.addEventListener('input', (e) => {
 
 document.getElementById('btnClear')?.addEventListener('click', () => {
   shapes = []; 
+  selectedShapes = []; // Clears the blue dotted lasso selection box
+  lassoBox = null;
+  isDragging = false;
+  isResizing = false;
   saveState();
   redrawBoard();
 });
@@ -385,9 +406,7 @@ if (imageInput) {
 // --- UNIVERSAL OFFSCREEN RENDERER (For PDFs & Thumbnails) ---
 function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, height) {
   targetCtx.save();
-  // Draw True Background
   drawBackground(targetCtx, width, height);
-  
   targetCtx.scale(scaleMultiplier, scaleMultiplier);
   
   pageShapes.forEach(stroke => {
@@ -748,6 +767,9 @@ function getClusters(pointersMap, radius) {
 }
 
 function processEraserClusters() {
+  // IFP Optimization: Only run clustering if there are actually multiple pointers, saving massive CPU cycles on single touches[cite: 1]
+  if (activePointers.size < 2 && activeErasers.size === 0) return;
+
   const clusters = getClusters(activePointers, CLUSTER_PROXIMITY_RADIUS);
   const currentEraserIds = new Set();
 
@@ -1011,12 +1033,30 @@ function renderDraftLayer() {
           draftCtx.stroke();
           draftCtx.restore();
         } else if (['line', 'rect', 'circle'].includes(stroke.tool)) {
+          // Dynamic calculation allows live visualization of shape drawing
           draftCtx.save();
           draftCtx.lineCap = 'round';
           draftCtx.lineJoin = 'round';
           draftCtx.strokeStyle = stroke.color;
           draftCtx.lineWidth = stroke.size;
-          drawShapePath(draftCtx, stroke);
+          
+          const pts = stroke.points;
+          if (pts.length >= 2) {
+             const start = pts[0];
+             const curr = pts[pts.length - 1];
+             
+             draftCtx.beginPath();
+             if (stroke.tool === 'line') {
+               draftCtx.moveTo(start.x, start.y);
+               draftCtx.lineTo(curr.x, curr.y);
+             } else if (stroke.tool === 'rect') {
+               draftCtx.rect(Math.min(start.x, curr.x), Math.min(start.y, curr.y), Math.abs(curr.x - start.x), Math.abs(curr.y - start.y));
+             } else if (stroke.tool === 'circle') {
+               const radius = Math.hypot(curr.x - start.x, curr.y - start.y);
+               draftCtx.arc(start.x, start.y, radius, 0, Math.PI * 2);
+             }
+             draftCtx.stroke();
+          }
           draftCtx.restore();
         }
       }
@@ -1047,8 +1087,6 @@ requestAnimationFrame(renderDraftLayer);
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   
-  // CRITICAL IFP FIX: Force the browser to track this exact touch point,
-  // even if the finger moves incredibly fast or slightly skips on the IR frame.
   try { canvas.setPointerCapture(e.pointerId); } catch(err) {}
 
   const coords = getCoordinates(e.clientX, e.clientY);
@@ -1103,7 +1141,9 @@ canvas.addEventListener('pointerdown', (e) => {
     isInvalidated: false
   });
 
-  processEraserClusters();
+  if (activePointers.size >= 2) {
+    processEraserClusters();
+  }
 
   const stroke = activePointers.get(e.pointerId);
   if (stroke && !stroke.isInvalidated && ['pen', 'marker', 'eraser'].includes(tool)) {
@@ -1191,7 +1231,10 @@ canvas.addEventListener('pointermove', (e) => {
     stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
 
-  processEraserClusters();
+  // IFP Optimization[cite: 1]: Prevent distance matrix calculation when only one finger is writing 
+  if (activePointers.size >= 2 || activeErasers.size > 0) {
+    processEraserClusters();
+  }
 
   if (!stroke.isInvalidated) {
     if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
@@ -1231,7 +1274,6 @@ canvas.addEventListener('pointermove', (e) => {
 function handlePointerEnd(e) {
   e.preventDefault();
   
-  // CRITICAL IFP FIX: Release the hardware pointer capture
   try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
 
   if (currentTool === 'select') {
@@ -1298,6 +1340,7 @@ function handlePointerEnd(e) {
   }
 
   activePointers.delete(e.pointerId);
+  // Ensure we clear out active erasers if fingers drop off
   processEraserClusters();
   needsDraftRender = true; 
 
@@ -1306,7 +1349,6 @@ function handlePointerEnd(e) {
   }
 }
 
-// Bind the updated IFP handler to all possible end states
 canvas.addEventListener('pointerup', handlePointerEnd);
 canvas.addEventListener('pointercancel', handlePointerEnd);
 canvas.addEventListener('pointerout', handlePointerEnd);
