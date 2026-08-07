@@ -1,36 +1,32 @@
+// --- CONFIGURATION & STATE ---
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
-
-// --- TOOL MEMORY CONFIGURATION ---
-const toolColors = {
-  pen: '#000000', marker: '#000000', highlighter: '#facc15', eraser: '#000000',
-  line: '#000000', rect: '#000000', circle: '#000000'
-};
-
-const toolSizes = {
-  pen: 4, marker: 10, highlighter: 30, eraser: 40,
-  line: 4, rect: 4, circle: 4
-};
-
-const toolMaxSizes = {
-  pen: 50, marker: 100, highlighter: 100, eraser: 100,
-  line: 50, rect: 50, circle: 50
-};
 
 const SWIPE_COLORS = ['#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#ffffff'];
 
 let currentTool = 'pen';
-let currentColor = toolColors.pen;
-let currentSize = toolSizes.pen;
-let markerManuallyChanged = false;
 
-// --- MULTI-TAP POPUP STATE ---
-let tapCount = 0;
-let tapTimeout = null;
+// Independent Memory for Every Tool
+const toolColors = {
+  pen: '#000000', marker: '#ef4444', highlighter: '#eab308', eraser: '#ffffff',
+  line: '#000000', rect: '#000000', circle: '#000000', text: '#000000'
+};
+
+const toolMaxSizes = {
+  pen: 50, marker: 100, highlighter: 100, eraser: 100,
+  line: 50, rect: 50, circle: 50, text: 50
+};
+
+const toolSizes = {
+  pen: 3, marker: 15, highlighter: 30, eraser: 40,
+  line: 3, rect: 3, circle: 3, text: 3
+};
+
+let markerManuallyChanged = false;
 
 // Load persisted background state or default
 let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#121212'; 
-let currentBgPattern = localStorage.getItem('smartboard_bgPattern') || 'plain'; 
+let currentBgPattern = localStorage.getItem('smartboard_bgPattern') || 'grid'; 
 
 let shapes = []; 
 let selectedShapes = [];
@@ -86,17 +82,22 @@ function setToolSize(tool, size) {
   let max = toolMaxSizes[tool] || 50;
   toolSizes[tool] = Math.max(1, Math.min(max, size));
 
-  // Marker is strictly 2x Pen size until explicitly adjusted
   if (tool === 'pen' && !markerManuallyChanged) {
       toolSizes.marker = Math.min(100, toolSizes.pen * 2);
   }
   if (tool === 'marker') {
       markerManuallyChanged = true;
   }
+}
 
-  if (currentTool === tool) {
-      currentSize = toolSizes[tool];
-  }
+// --- ICON UPDATER ---
+function updateToolIcons() {
+  document.querySelectorAll('.tool[data-tool]').forEach(btn => {
+    const tool = btn.dataset.tool;
+    if (toolColors[tool] && tool !== 'eraser') {
+      btn.style.color = toolColors[tool];
+    }
+  });
 }
 
 // --- DYNAMIC UI THEME ENGINE ---
@@ -150,22 +151,27 @@ function drawBackground(targetCtx, w, h) {
 // --- DYNAMIC UI INJECTIONS & EVENT BINDINGS ---
 document.addEventListener("DOMContentLoaded", () => {
   updateTheme(currentBgColor);
+  updateToolIcons();
 
   const customBgInput = document.getElementById('bg-custom');
   if (customBgInput && currentBgColor.startsWith('#')) {
     customBgInput.value = currentBgColor.slice(0, 7);
   }
 
-  // Inject Color Strip UI
-  const colorStripContainer = document.getElementById('colorStripContainer');
-  if (colorStripContainer) {
-    SWIPE_COLORS.forEach((color, i) => {
-      const dot = document.createElement('div');
-      dot.className = 'color-dot';
-      dot.dataset.index = i;
-      dot.style.backgroundColor = color;
-      if (color === '#ffffff') dot.style.border = '1px solid #cbd5e1';
-      colorStripContainer.appendChild(dot);
+  // Inject Color Palette for Triple Tap Popover
+  const colorGrid = document.getElementById('colorGrid');
+  if (colorGrid) {
+    SWIPE_COLORS.forEach(color => {
+      const btn = document.createElement('button');
+      btn.className = 'color-btn';
+      btn.style.backgroundColor = color;
+      if (color === '#ffffff') btn.style.border = '1px solid #cbd5e1';
+      btn.addEventListener('click', () => {
+        toolColors[currentTool] = color;
+        updateToolIcons();
+        document.getElementById('color-popover').classList.add('hidden');
+      });
+      colorGrid.appendChild(btn);
     });
   }
 
@@ -225,16 +231,16 @@ document.addEventListener("DOMContentLoaded", () => {
       e.stopPropagation();
       moreMenu.classList.toggle('hidden');
       if (exportMenu) exportMenu.classList.add('hidden');
+      closePopovers();
     });
   }
 
   window.addEventListener('click', (e) => {
     if (!e.target.closest('.export-menu-container')) exportMenu?.classList.add('hidden');
     if (!e.target.closest('.more-menu-container')) moreMenu?.classList.add('hidden');
-  });
-
-  window.addEventListener('contextmenu', (e) => {
-    if (toolDragActive) e.preventDefault();
+    if (!e.target.closest('.tool') && !e.target.closest('.popover')) {
+       closePopovers();
+    }
   });
 
   const setBg = (color) => { 
@@ -353,26 +359,67 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- MULTI-TAP & RESTING-STEP SLIDER LOGIC ---
+// --- MULTI-TAP ENGINE & POPOVER LOGIC ---
 const sizePopover = document.getElementById('size-popover');
 const colorPopover = document.getElementById('color-popover');
-const sizeRangeInput = document.getElementById('sizeRangeInput');
-const sizeValueDisplay = document.getElementById('sizeValueDisplay');
-const toolColorPicker = document.getElementById('toolColorPicker');
-const colorPicker = document.getElementById('colorPicker');
+const sizePicker = document.getElementById('sizePicker');
+const sizeValueDisplay = document.getElementById('sizeValue');
+const sizePreviewCircle = document.getElementById('sizePreviewCircle');
 
-function hideAllPopovers() {
-  if (sizePopover) sizePopover.classList.add('hidden');
-  if (colorPopover) colorPopover.classList.add('hidden');
+let tapCounts = {};
+let tapTimers = {};
+
+function closePopovers() {
+  if(sizePopover) sizePopover.classList.add('hidden');
+  if(colorPopover) colorPopover.classList.add('hidden');
 }
 
-function updateToolIconColor(toolName, colorHex) {
-  const btn = document.querySelector(`.tool[data-tool="${toolName}"]`);
-  if (btn) btn.style.color = colorHex;
+function positionPopover(popover, targetBtn) {
+  popover.classList.remove('hidden');
+  const rect = targetBtn.getBoundingClientRect();
+  popover.style.left = `${rect.left + (rect.width / 2)}px`;
+  popover.style.top = `${rect.top - popover.offsetHeight - 15}px`; 
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  Object.keys(toolColors).forEach(t => updateToolIconColor(t, toolColors[t]));
+function updateSizePreview() {
+  if (sizePreviewCircle) {
+    sizePreviewCircle.style.width = `${toolSizes[currentTool]}px`;
+    sizePreviewCircle.style.height = `${toolSizes[currentTool]}px`;
+    sizePreviewCircle.style.backgroundColor = toolColors[currentTool];
+  }
+}
+
+// Custom Soft-Snapping Logic for Slider
+sizePicker?.addEventListener('input', (e) => {
+  let val = parseInt(e.target.value);
+  let threshold = 1;
+  let steps = [];
+
+  if (['pen', 'line', 'rect', 'circle', 'text'].includes(currentTool)) {
+      steps = [1];
+      for(let i=3; i<=50; i+=3) steps.push(i);
+  } else if (['marker', 'highlighter'].includes(currentTool)) {
+      steps = [1];
+      for(let i=5; i<=100; i+=5) steps.push(i);
+      threshold = 2; // wider grab for larger scales
+  } else {
+      steps = [1];
+      for(let i=5; i<=100; i+=5) steps.push(i);
+      threshold = 2;
+  }
+
+  // Enforce Snap if within threshold distance of a resting step
+  for (let step of steps) {
+      if (Math.abs(val - step) <= threshold) {
+          val = step;
+          e.target.value = val; // Visually bump the slider handle
+          break;
+      }
+  }
+
+  setToolSize(currentTool, val);
+  if (sizeValueDisplay) sizeValueDisplay.textContent = `${val}px`;
+  updateSizePreview();
 });
 
 function handleToolAction(selectedTool) {
@@ -393,10 +440,10 @@ function handleToolAction(selectedTool) {
         text: textVal,
         x: window.innerWidth / 2 - 50,
         y: window.innerHeight / 2,
-        color: currentColor,
-        size: currentSize,
-        w: textVal.length * currentSize * 3,
-        h: currentSize * 5
+        color: toolColors.text,
+        size: toolSizes.text,
+        w: textVal.length * toolSizes.text * 3,
+        h: toolSizes.text * 5
       });
       saveState();
       redrawBoard();
@@ -408,10 +455,12 @@ function handleToolAction(selectedTool) {
 
 document.addEventListener('click', (e) => {
   const trigger = e.target.closest('.tool-trigger');
-  if (trigger) handleToolAction(trigger.dataset.tool);
+  if (trigger) {
+    handleToolAction(trigger.dataset.tool);
+  }
 });
 
-// Single, Double, and Triple Tap Handlers for IR Touch panels
+// Primary Tool Tap Registration
 document.querySelectorAll('.tool').forEach(button => {
   button.oncontextmenu = (e) => e.preventDefault();
 
@@ -424,181 +473,48 @@ document.querySelectorAll('.tool').forEach(button => {
       return;
     }
 
-    tapCount++;
+    // Process Taps
+    tapCounts[selectedTool] = (tapCounts[selectedTool] || 0) + 1;
+    clearTimeout(tapTimers[selectedTool]);
 
-    if (tapCount === 1) {
-      tapTimeout = setTimeout(() => {
-        // --- SINGLE TAP: Select Tool ---
-        hideAllPopovers();
-        document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
-        e.currentTarget.classList.add('active');
-        
-        currentTool = selectedTool;
-        currentColor = toolColors[currentTool];
-        currentSize = toolSizes[currentTool];
-        
-        if (colorPicker) colorPicker.value = currentColor;
-        tapCount = 0;
-      }, 350);
-    } 
-    else if (tapCount === 2) {
-      // --- DOUBLE TAP: Size Pop-up with Resting Steps ---
-      clearTimeout(tapTimeout);
-      hideAllPopovers();
-      
+    // Tap 1: Select Tool Instantly
+    if (tapCounts[selectedTool] === 1) {
+      closePopovers();
+      document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
+      e.currentTarget.classList.add('active');
       currentTool = selectedTool;
-      currentColor = toolColors[currentTool];
-      currentSize = toolSizes[currentTool];
-
-      if (sizeRangeInput && sizeValueDisplay && sizePopover) {
-        let max = toolMaxSizes[currentTool] || 50;
-        sizeRangeInput.max = max;
-        
-        // Resting steps: 5px for pen, 10px for marker, 1px for others
-        if (currentTool === 'pen') sizeRangeInput.step = "5";
-        else if (currentTool === 'marker') sizeRangeInput.step = "10";
-        else sizeRangeInput.step = "1";
-
-        sizeRangeInput.value = currentSize;
-        sizeValueDisplay.textContent = `${currentSize}px`;
-
-        const rect = e.currentTarget.getBoundingClientRect();
-        sizePopover.style.left = `${rect.left + rect.width / 2}px`;
-        sizePopover.style.top = `${rect.top - 65}px`;
-        sizePopover.classList.remove('hidden');
-      }
-
-      tapTimeout = setTimeout(() => { tapCount = 0; }, 350);
     } 
-    else if (tapCount >= 3) {
-      // --- TRIPLE TAP: Color Picker for this Tool ---
-      clearTimeout(tapTimeout);
-      hideAllPopovers();
-
-      currentTool = selectedTool;
-      if (toolColorPicker && colorPopover) {
-        toolColorPicker.value = toolColors[currentTool];
-
-        const rect = e.currentTarget.getBoundingClientRect();
-        colorPopover.style.left = `${rect.left + rect.width / 2}px`;
-        colorPopover.style.top = `${rect.top - 65}px`;
-        colorPopover.classList.remove('hidden');
-      }
-
-      tapCount = 0;
-    }
-  });
-});
-
-// Pop-up Slider & Color Input Listeners
-sizeRangeInput?.addEventListener('input', (e) => {
-  let val = parseInt(e.target.value, 10);
-  toolSizes[currentTool] = val;
-  currentSize = val;
-  if (sizeValueDisplay) sizeValueDisplay.textContent = `${val}px`;
-});
-
-toolColorPicker?.addEventListener('input', (e) => {
-  let col = e.target.value;
-  toolColors[currentTool] = col;
-  currentColor = col;
-  updateToolIconColor(currentTool, col);
-  
-  if (colorPicker) colorPicker.value = col;
-});
-
-// Hide popovers when clicking on the canvas board
-canvas.addEventListener('pointerdown', () => {
-  hideAllPopovers();
-});
-
-// 2. Track Finger Globally - Lock Axis on first 15px movement
-window.addEventListener('pointermove', (e) => {
-  if (toolDragActive) {
-    let dx = e.clientX - toolDragStartX;
-    let dy = e.clientY - toolDragStartY;
-
-    // Determine Axis if not locked yet
-    if (!dragAxis) {
-      if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
-        dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        
-        if (sizePopover) {
-          sizePopover.classList.remove('hidden');
-          sizePopover.style.position = 'fixed';
-          sizePopover.style.left = `${toolDragStartX}px`;
-          sizePopover.style.top = `${toolDragStartY - 160}px`;
-          
-          if (dragAxis === 'x') {
-             document.getElementById('sizePreviewContainer').style.display = 'none';
-             document.getElementById('sizeValue').style.display = 'none';
-             document.getElementById('colorStripContainer').style.display = 'flex';
-             updateColorStrip();
-          } else {
-             document.getElementById('sizePreviewContainer').style.display = 'flex';
-             document.getElementById('sizeValue').style.display = 'block';
-             document.getElementById('colorStripContainer').style.display = 'none';
-             updateSizePreview();
-          }
-        }
-      }
-    }
-
-    // Process Movement based on locked Axis
-    if (dragAxis) {
-      e.preventDefault(); 
+    // Tap 2: Open Size Slider
+    else if (tapCounts[selectedTool] === 2) {
+      if (colorPopover) colorPopover.classList.add('hidden');
       
-      if (dragAxis === 'y') {
-        let stepY = toolDragLastY - e.clientY;
-        toolDragLastY = e.clientY; 
-        let newSize = currentSize + (stepY * 0.8);
-        setToolSize(currentTool, newSize);
-        if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
+      if (sizePicker && sizePopover) {
+        sizePicker.max = toolMaxSizes[currentTool];
+        sizePicker.value = toolSizes[currentTool];
+        if (sizeValueDisplay) sizeValueDisplay.textContent = `${toolSizes[currentTool]}px`;
         updateSizePreview();
-      } 
-      else if (dragAxis === 'x') {
-        let colorShift = Math.floor((e.clientX - toolDragStartX) / 35); 
-        if (Math.abs(colorShift) > 0) {
-           swipeColorIndex = (swipeColorIndex + colorShift) % SWIPE_COLORS.length;
-           if (swipeColorIndex < 0) swipeColorIndex += SWIPE_COLORS.length;
-           currentColor = SWIPE_COLORS[swipeColorIndex];
-           
-           const cPicker = document.getElementById('colorPicker');
-           if (cPicker) cPicker.value = currentColor;
-           
-           toolDragStartX = e.clientX; 
-           updateColorStrip();
+        
+        // Use a tiny timeout to let the DOM calculate height before positioning
+        setTimeout(() => positionPopover(sizePopover, e.currentTarget), 10);
+      }
+    } 
+    // Tap 3: Open Color Palette
+    else if (tapCounts[selectedTool] >= 3) {
+      if (selectedTool !== 'eraser') { // Eraser has no color
+        if (sizePopover) sizePopover.classList.add('hidden');
+        if (colorPopover) {
+          setTimeout(() => positionPopover(colorPopover, e.currentTarget), 10);
         }
       }
-      
-      if (sizePopover) {
-          sizePopover.style.left = `${e.clientX}px`;
-          sizePopover.style.top = `${e.clientY - 160}px`;
-      }
+      tapCounts[selectedTool] = 0; // reset
     }
-  }
-}, { passive: false });
 
-// 3. Clear State globally when finger lifts
-// Global Clear State for Window
-window.addEventListener('pointerup', (e) => {
-  if (toolDragActive && !e.target.closest('.tool')) {
-    toolDragActive = false;
-    dragAxis = null;
-    if (sizePopover) sizePopover.classList.add('hidden');
-  }
-});
-window.addEventListener('pointercancel', (e) => {
-  if (toolDragActive) {
-    toolDragActive = false;
-    dragAxis = null;
-    if (sizePopover) sizePopover.classList.add('hidden');
-  }
-});
+    // Reset Tap Counter after 400ms window closes
+    tapTimers[selectedTool] = setTimeout(() => {
+      tapCounts[selectedTool] = 0;
+    }, 400);
 
-colorPicker?.addEventListener('input', (e) => {
-  currentColor = e.target.value;
-  updateSizePreview();
+  });
 });
 
 document.getElementById('btnClear')?.addEventListener('click', () => {
@@ -619,6 +535,7 @@ if (btnMainExport && exportDropdownMenu) {
     e.stopPropagation();
     exportDropdownMenu.classList.toggle('hidden');
     document.getElementById('moreDropdownMenu')?.classList.add('hidden');
+    closePopovers();
   });
 }
 
@@ -1330,9 +1247,8 @@ requestAnimationFrame(renderDraftLayer);
 // --- POINTER LISTENERS & SELECT MODE ---
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (toolDragActive) return;
-
   e.preventDefault();
+  closePopovers();
   
   try { canvas.setPointerCapture(e.pointerId); } catch(err) {}
 
@@ -1362,8 +1278,8 @@ canvas.addEventListener('pointerdown', (e) => {
 
   activePointers.set(e.pointerId, {
     tool: tool,
-    color: currentColor,
-    size: currentSize,
+    color: toolColors[tool] || '#000000',
+    size: toolSizes[tool] || 4,
     points: [coords],
     lastRenderedIndex: 1,
     isInvalidated: false
@@ -1375,18 +1291,16 @@ canvas.addEventListener('pointerdown', (e) => {
   if (stroke && !stroke.isInvalidated && ['pen', 'marker', 'eraser'].includes(tool)) {
     ctx.save();
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
-    ctx.fillStyle = currentColor;
+    ctx.fillStyle = toolColors[tool] || '#000000';
     ctx.beginPath();
-    const activeRadius = currentSize / 2;
+    const activeRadius = (toolSizes[tool] || 4) / 2;
     ctx.arc(coords.x, coords.y, activeRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 });
 
-
 canvas.addEventListener('pointermove', (e) => {
-  if (toolDragActive) return;
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
 
@@ -1511,7 +1425,6 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function handlePointerEnd(e) {
-  if (toolDragActive) return;
   e.preventDefault();
   
   try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
@@ -1600,7 +1513,7 @@ function createStickyNote(x = window.innerWidth / 2 - 90, y = window.innerHeight
   note.style.top = `${y}px`;
   note.style.zIndex = '9999';
 
-  const noteBg = currentColor === '#000000' ? '#fef08a' : currentColor;
+  const noteBg = toolColors.pen === '#000000' ? '#fef08a' : toolColors.pen;
   note.style.backgroundColor = noteBg;
 
   note.innerHTML = `
