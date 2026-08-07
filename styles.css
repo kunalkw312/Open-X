@@ -103,16 +103,24 @@ body, html {
   font-weight: 600;
   font-size: 14px;
   transition: all 0.15s ease;
+  
+  /* Remove IFP's default purple/blue tap highlight box */
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Active state ignores dynamic tint to remain clearly highlighted */
+.tool:focus, .tool:active {
+  outline: none !important;
+}
+
+/* Active state matches the theme dynamically by inverting the text and bg colors! */
 .tool.active {
-  background: #5d35ff !important;
-  color: #ffffff !important;
+  background: var(--tb-text) !important;
+  color: var(--tb-bg) !important;
 }
 
 .tool.active svg {
-  stroke: #ffffff !important;
+  stroke: var(--tb-bg) !important;
 }
 
 .tool.disabled {
@@ -140,7 +148,7 @@ input[type="color"]::-webkit-color-swatch {
   box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
 }
 
-/* --- SIZE POPOVER BASE STYLES --- */
+/* --- SIZE & COLOR POPOVER --- */
 .size-popover {
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
@@ -148,6 +156,12 @@ input[type="color"]::-webkit-color-swatch {
 .size-preview-circle {
   border-radius: 50%;
   transition: width 0.05s, height 0.05s, background-color 0.1s;
+}
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 /* --- DROPDOWN MENUS --- */
