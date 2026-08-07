@@ -423,6 +423,19 @@ function updateSizePreview() {
   }
 }
 
+// Click on the size indicator circle switches directly to the color picker
+const sizePreviewContainer = document.querySelector('.size-preview');
+if (sizePreviewContainer) {
+  sizePreviewContainer.addEventListener('click', () => {
+    if (currentTool === 'eraser' || currentTool === 'select') return;
+    if (sizePopover) sizePopover.classList.add('hidden');
+    if (colorPopover) {
+      const activeBtn = document.querySelector('.tool.active');
+      if (activeBtn) positionPopover(colorPopover, activeBtn);
+    }
+  });
+}
+
 // Custom Soft-Snapping Logic for Slider
 sizePicker?.addEventListener('input', (e) => {
   let val = parseInt(e.target.value);
