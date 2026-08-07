@@ -46,22 +46,23 @@
   <input type="file" id="imageInput" accept="image/*" class="hidden">
   <input type="file" id="projectInput" accept=".oxsb" class="hidden">
 
-  <!-- Dynamic Size & Color Popover (Swaps based on swipe direction) -->
-  <div id="size-popover" class="size-popover hidden" style="padding: 16px; pointer-events: none; border-radius: 20px;">
-    
-    <!-- 1. Size Preview Container -->
-    <div id="sizePreviewContainer" style="display: flex; flex-direction: column; align-items: center;">
-      <div class="size-preview" style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center;">
-        <div id="sizePreviewCircle" class="size-preview-circle" style="flex-shrink: 0;"></div>
-      </div>
-      <span id="sizeValue" style="font-size: 16px; font-weight: 700; margin-top: 8px; min-width: 40px; text-align: center;">4px</span>
+  <!-- Size Popover (Double Tap) with resting steps slider -->
+  <div id="size-popover" class="tool-popover hidden">
+    <div class="popover-arrow"></div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span id="sizePopoverTitle" style="font-size: 12px; font-weight: 700; color: var(--tb-text);">Size</span>
+      <input type="range" id="sizeRangeInput" min="1" max="50" value="4" style="cursor: pointer;">
+      <span id="sizeValueDisplay" style="font-size: 12px; font-weight: 600; min-width: 30px;">4px</span>
     </div>
+  </div>
 
-    <!-- 2. Color Strip Container -->
-    <div id="colorStripContainer" style="display: none; flex-direction: row; gap: 12px; align-items: center; padding: 8px;">
-      <!-- Dots are injected here dynamically by app.js -->
+  <!-- Color Popover (Triple Tap) -->
+  <div id="color-popover" class="tool-popover hidden">
+    <div class="popover-arrow"></div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 12px; font-weight: 700; color: var(--tb-text);">Color</span>
+      <input type="color" id="toolColorPicker" value="#000000" style="cursor: pointer; width: 32px; height: 32px; border-radius: 50%;">
     </div>
-
   </div>
 
   <!-- ========================================== -->
