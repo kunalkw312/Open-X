@@ -1,5 +1,5 @@
 // Bumped to v5 to force the IFP to fetch all the new layout, color-swiping, and size logic updates!
-const CACHE_NAME = 'smartboard-cache-v10.1'; 
+const CACHE_NAME = 'smartboard-cache-v10.2'; 
 
 const ASSETS_TO_CACHE = [
   './',
