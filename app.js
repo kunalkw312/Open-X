@@ -9,28 +9,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // --- SPLASH SCREEN ENGINE ---
-document.addEventListener("DOMContentLoaded", () => {
-  const video = document.getElementById('intro-video');
-  const splashContainer = document.getElementById('splash-container');
-  const skipBtn = document.getElementById('btn-skip-intro');
-  
-  function removeSplash() {
-    if (splashContainer) {
-      splashContainer.classList.add('fade-out');
-      setTimeout(() => splashContainer.remove(), 1000); 
-    }
-  }
 
-  if (video && splashContainer) {
-    video.addEventListener('ended', removeSplash);
-    
-    if (skipBtn) {
-      skipBtn.addEventListener('click', removeSplash);
-    }
-
-    setTimeout(removeSplash, 8000);
-  }
-});
 
 // --- CONFIGURATION ---
 const PALM_ERASER_RADIUS = 50; 
