@@ -1,5 +1,3 @@
-import './styles.css';
-
 // --- GHOST CACHE KILLER ---
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(function(registrations) {
