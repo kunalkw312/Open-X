@@ -113,14 +113,10 @@ body, html {
   outline: none !important;
 }
 
-/* Active state matches the theme dynamically by inverting the text and bg colors! */
-.tool.active {
-  background: var(--tb-text) !important;
-  color: var(--tb-bg) !important;
-}
-
-.tool.active svg {
-  stroke: var(--tb-bg) !important;
+/* Active and Hover states are exactly the same now! 
+   (We do NOT force text color here, so JS can update the SVG to the chosen color) */
+.tool:hover, .tool.active {
+  background: var(--tb-hover) !important;
 }
 
 .tool.disabled {
@@ -291,7 +287,7 @@ input[type="range"]::-webkit-slider-thumb {
   height: 24px;
   width: 24px;
   border-radius: 50%;
-  background: #5d35ff;
+  background: var(--tb-text);
   cursor: pointer;
   margin-top: -10px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.2);
