@@ -67,9 +67,9 @@ body, html {
   margin: 0 4px;
 }
 
-/* --- 3-PART IFP LAYOUT ZONES --- */
+/* --- 2-PART IFP LAYOUT ZONES --- */
 
-/* 1. Main Drawing Tools - Bottom Center */
+/* 1. Main Drawing & Tools - Bottom Center */
 .toolbar-bottom {
   position: fixed;
   bottom: 20px;
@@ -79,25 +79,7 @@ body, html {
   align-items: center;
 }
 
-/* 2. Shapes & Media - Middle Left (Vertical Panel) */
-.toolbar-left {
-  position: fixed;
-  left: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  flex-direction: column;
-  padding: 14px 8px;
-}
-.toolbar-left .tool-group {
-  flex-direction: column;
-}
-.toolbar-left .divider {
-  width: 24px;
-  height: 1px;
-  margin: 4px 0;
-}
-
-/* 3. Board Controls & Export - Bottom Right */
+/* 2. Board Controls & Export - Bottom Right */
 .toolbar-right {
   position: fixed;
   bottom: 20px;
@@ -120,6 +102,8 @@ body, html {
   font-weight: 600;
   font-size: 14px;
   transition: all 0.15s ease;
+  /* Required to prevent IFP browsers from doing a default drag when holding to resize */
+  touch-action: none; 
 }
 
 .tool:hover {
@@ -157,10 +141,9 @@ input[type="color"]::-webkit-color-swatch {
   box-shadow: 0 0 0 1px #cbd5e1;
 }
 
-/* Size Slider Popover */
+/* Size Slider Popover (Hidden dynamically by JS logic during hold-and-swipe) */
 .size-popover {
   position: fixed;
-  /* Coordinates are now injected directly by JS based on tool position */
   z-index: 10001;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
@@ -168,8 +151,9 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   border: 1px solid #e2e8f0;
 }
 
@@ -186,16 +170,14 @@ input[type="color"]::-webkit-color-swatch {
   transition: width 0.1s, height 0.1s;
 }
 
-/* --- DROPDOWN MENUS (SETTINGS & EXPORT) --- */
-.settings-menu-container, .export-menu-container {
+/* --- DROPDOWN MENUS (SETTINGS, MORE & EXPORT) --- */
+.settings-menu-container, .export-menu-container, .more-menu-container {
   position: relative;
 }
 
 .dropdown-menu {
   position: absolute;
   bottom: 50px;
-  right: 0;
-  width: 220px;
   background: #ffffff;
   border-radius: 12px;
   padding: 12px;
