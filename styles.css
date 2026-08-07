@@ -1,3 +1,50 @@
+/* Add these styles to the top of styles.css */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body, html {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #121212;
+}
+
+/* --- IFP TOUCH-LOCK CANVAS ARCHITECTURE --- */
+#board, #bgBoard, #draftBoard {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  
+  /* CRITICAL: Prevents IFP OS from hijacking IR touch events for scrolling/swiping */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+/* --- SVG ICON STYLING --- */
+.tool svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none; /* Prevents icons from blocking clicks */
+}
+
+/* (Leave the rest of your toolbar, dropdown, and sticky note CSS exactly as it was) */
+
 * {
   box-sizing: border-box;
   margin: 0;
