@@ -1043,8 +1043,14 @@ function renderDraftLayer() {
 requestAnimationFrame(renderDraftLayer);
 
 // --- POINTER LISTENERS & SELECT MODE ---
+
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  
+  // CRITICAL IFP FIX: Force the browser to track this exact touch point,
+  // even if the finger moves incredibly fast or slightly skips on the IR frame.
+  try { canvas.setPointerCapture(e.pointerId); } catch(err) {}
+
   const coords = getCoordinates(e.clientX, e.clientY);
   const tool = e.pointerType === 'eraser' ? 'eraser' : currentTool;
 
@@ -1111,6 +1117,7 @@ canvas.addEventListener('pointerdown', (e) => {
     ctx.restore();
   }
 });
+
 
 canvas.addEventListener('pointermove', (e) => {
   e.preventDefault();
@@ -1224,6 +1231,9 @@ canvas.addEventListener('pointermove', (e) => {
 function handlePointerEnd(e) {
   e.preventDefault();
   
+  // CRITICAL IFP FIX: Release the hardware pointer capture
+  try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
+
   if (currentTool === 'select') {
     if (isResizing) {
       isResizing = false;
@@ -1296,6 +1306,7 @@ function handlePointerEnd(e) {
   }
 }
 
+// Bind the updated IFP handler to all possible end states
 canvas.addEventListener('pointerup', handlePointerEnd);
 canvas.addEventListener('pointercancel', handlePointerEnd);
 canvas.addEventListener('pointerout', handlePointerEnd);
