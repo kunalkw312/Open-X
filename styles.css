@@ -265,3 +265,38 @@ input[type="color"]::-webkit-color-swatch {
 .hidden {
   display: none !important;
 }
+
+/* --- TOOL POPOVERS WITH V-SHAPED ARROW --- */
+.tool-popover {
+  position: fixed;
+  z-index: 20000;
+  background: var(--tb-bg, #ffffff);
+  border: 1px solid var(--tb-border, #cbd5e1);
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  transform: translateX(-50%);
+}
+
+.popover-arrow {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 12px;
+  height: 12px;
+  background: var(--tb-bg, #ffffff);
+  border-right: 1px solid var(--tb-border, #cbd5e1);
+  border-bottom: 1px solid var(--tb-border, #cbd5e1);
+}
+
+/* Fix active tool background to match dark/light board themes cleanly */
+.tool.active {
+  background: var(--tb-text, #334155) !important;
+  color: var(--tb-bg, #ffffff) !important;
+}
+.tool.active svg {
+  stroke: var(--tb-bg, #ffffff) !important;
+}
