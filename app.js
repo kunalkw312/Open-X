@@ -213,6 +213,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!e.target.closest('.more-menu-container')) moreMenu?.classList.add('hidden');
   });
 
+  // Global Context Menu Prevention during drag
+  window.addEventListener('contextmenu', (e) => {
+    if (toolDragActive) e.preventDefault();
+  });
+
   const setBg = (color) => { 
     currentBgColor = color; 
     localStorage.setItem('smartboard_bgColor', color); 
@@ -329,20 +334,17 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- SWIPE-TO-SIZE & SWIPE-TO-COLOR LOGIC ---
+// --- GLOBAL SWIPE-TO-SIZE & SWIPE-TO-COLOR LOGIC ---
 const sizePopover = document.getElementById('size-popover');
 const sizeValueDisplay = document.getElementById('sizeValue');
 const sizePreviewCircle = document.getElementById('sizePreviewCircle');
 const colorPicker = document.getElementById('colorPicker');
 
 let holdTimer = null;
-let isHolding = false;
 let toolDragActive = false;
 let toolDragLastY = 0;
 let toolDragStartX = 0;
-let toolDragTarget = null;
 let swipeColorIndex = 0;
-
 let ptrDownX = 0;
 let ptrDownY = 0;
 
@@ -392,7 +394,11 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// 1. Setup the Long Press on the Buttons
 document.querySelectorAll('.tool').forEach(button => {
+  // Prevent default context menu on tools immediately
+  button.oncontextmenu = (e) => e.preventDefault();
+
   button.addEventListener('pointerdown', (e) => {
     const selectedTool = e.currentTarget.dataset.tool;
     if (!selectedTool) return;
@@ -413,15 +419,12 @@ document.querySelectorAll('.tool').forEach(button => {
       ptrDownX = e.clientX;
       ptrDownY = e.clientY;
       
-      // 1.5 Second Hold Trigger
+      // Timer triggers after 1 second (lowered from 1.5s for usability)
       holdTimer = setTimeout(() => {
-        isHolding = true;
         toolDragActive = true;
-        toolDragTarget = e.currentTarget;
         toolDragLastY = e.clientY;
         toolDragStartX = e.clientX;
 
-        // Sync starting color index
         swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
         if (swipeColorIndex === -1) swipeColorIndex = 0;
 
@@ -434,32 +437,35 @@ document.querySelectorAll('.tool').forEach(button => {
           sizePopover.style.bottom = `auto`;
           sizePopover.style.transform = 'translateX(-50%)';
         }
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
-      }, 1500);
+      }, 1000); 
     }
   });
+});
 
-  button.addEventListener('pointermove', (e) => {
-    // Cancel hold timer early if user drags their finger away quickly before 1.5s
-    if (!isHolding && holdTimer) {
-      if (Math.hypot(e.clientX - ptrDownX, e.clientY - ptrDownY) > 15) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-      }
+// 2. Track Finger Globally Across Window (Fixes the "Stopped Working" bug)
+window.addEventListener('pointermove', (e) => {
+  // If moving too much before the timer hits, cancel it (Jitter tolerance: 30px)
+  if (holdTimer) {
+    if (Math.hypot(e.clientX - ptrDownX, e.clientY - ptrDownY) > 30) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
     }
+  }
 
-    if (!toolDragActive || toolDragTarget !== e.currentTarget) return;
-    
+  // If the drag is fully active
+  if (toolDragActive) {
+    e.preventDefault(); // Stop screen from scrolling on IFP
+
     // Y-Axis: Size Adjustment
     let deltaY = toolDragLastY - e.clientY;
     toolDragLastY = e.clientY; 
     let newSize = currentSize + (deltaY * 0.8);
     setToolSize(currentTool, newSize);
 
-    // X-Axis: Color Adjustment (Swipe 40px to tick through palette)
+    // X-Axis: Color Adjustment (Swipe 40px left/right to change)
     let deltaX = e.clientX - toolDragStartX;
     let colorShift = Math.floor(deltaX / 40); 
-    if (colorShift !== 0) {
+    if (Math.abs(colorShift) > 0) {
        swipeColorIndex = (swipeColorIndex + colorShift) % SWIPE_COLORS.length;
        if (swipeColorIndex < 0) swipeColorIndex += SWIPE_COLORS.length;
        currentColor = SWIPE_COLORS[swipeColorIndex];
@@ -478,24 +484,29 @@ document.querySelectorAll('.tool').forEach(button => {
 
     if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
     updateSizePreview();
-  });
+  }
+}, { passive: false });
 
-  const endDrag = (e) => {
-    if (holdTimer) {
-      clearTimeout(holdTimer);
-      holdTimer = null;
-    }
-    if (toolDragActive && toolDragTarget === e.currentTarget) {
-      toolDragActive = false;
-      toolDragTarget = null;
-      isHolding = false;
-      if (sizePopover) sizePopover.classList.add('hidden');
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
-    }
-  };
-
-  button.addEventListener('pointerup', endDrag);
-  button.addEventListener('pointercancel', endDrag);
+// 3. Clear State globally when finger lifts
+window.addEventListener('pointerup', (e) => {
+  if (holdTimer) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  if (toolDragActive) {
+    toolDragActive = false;
+    if (sizePopover) sizePopover.classList.add('hidden');
+  }
+});
+window.addEventListener('pointercancel', (e) => {
+  if (holdTimer) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  if (toolDragActive) {
+    toolDragActive = false;
+    if (sizePopover) sizePopover.classList.add('hidden');
+  }
 });
 
 colorPicker?.addEventListener('input', (e) => {
@@ -1232,6 +1243,9 @@ requestAnimationFrame(renderDraftLayer);
 // --- POINTER LISTENERS & SELECT MODE ---
 
 canvas.addEventListener('pointerdown', (e) => {
+  // Ignore drawing if we are actively holding a tool to resize
+  if (toolDragActive || holdTimer) return;
+
   e.preventDefault();
   
   try { canvas.setPointerCapture(e.pointerId); } catch(err) {}
@@ -1286,6 +1300,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
 
 canvas.addEventListener('pointermove', (e) => {
+  if (toolDragActive || holdTimer) return;
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
 
@@ -1410,6 +1425,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function handlePointerEnd(e) {
+  if (toolDragActive || holdTimer) return;
   e.preventDefault();
   
   try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
