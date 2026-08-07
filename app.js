@@ -1,4 +1,3 @@
-import './styles.css';
 
 // --- GHOST CACHE KILLER ---
 if ('serviceWorker' in navigator) {
