@@ -416,7 +416,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// 1. Tool Pressed - Set Active immediately, prepare for potential drag
+// 1. Tool Pressed - Set Active immediately and capture pointer for IFP tracking
 document.querySelectorAll('.tool').forEach(button => {
   button.oncontextmenu = (e) => e.preventDefault();
 
@@ -447,7 +447,27 @@ document.querySelectorAll('.tool').forEach(button => {
       swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
       if (swipeColorIndex === -1) swipeColorIndex = 0;
 
+      // CRITICAL IFP FIX: Forces the panel to keep tracking this finger even outside the button
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
+    }
+  });
+
+  // Ensure capture is cleanly released when finishing the gesture
+  button.addEventListener('pointerup', (e) => {
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
+    if (toolDragActive) {
+      toolDragActive = false;
+      dragAxis = null;
+      if (sizePopover) sizePopover.classList.add('hidden');
+    }
+  });
+
+  button.addEventListener('pointercancel', (e) => {
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
+    if (toolDragActive) {
+      toolDragActive = false;
+      dragAxis = null;
+      if (sizePopover) sizePopover.classList.add('hidden');
     }
   });
 });
@@ -520,8 +540,9 @@ window.addEventListener('pointermove', (e) => {
 }, { passive: false });
 
 // 3. Clear State globally when finger lifts
+// Global Clear State for Window
 window.addEventListener('pointerup', (e) => {
-  if (toolDragActive) {
+  if (toolDragActive && !e.target.closest('.tool')) {
     toolDragActive = false;
     dragAxis = null;
     if (sizePopover) sizePopover.classList.add('hidden');
