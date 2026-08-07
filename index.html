@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Smartboard for Teachers</title>
+  <title>Smartboard Enterprise</title>
   <link rel="stylesheet" href="styles.css">
+  
+  <!-- Professional Icon Library (Google Material Symbols) -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  
   <!-- jsPDF for PDF export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -21,24 +25,38 @@
   <div class="toolbar top-toolbar">
     <!-- Pagination -->
     <div class="pagination-group">
-      <button id="btnPrevPage" class="icon-btn disabled" title="Previous Page">◀</button>
+      <button id="btnPrevPage" class="icon-btn disabled" title="Previous Page">
+        <span class="material-symbols-outlined">arrow_back_ios_new</span>
+      </button>
       <span id="pageDisplay">1/1</span>
-      <button id="btnNextPage" class="icon-btn disabled" title="Next Page">▶</button>
-      <button id="btnAddPage" class="icon-btn" title="Add New Page">➕</button>
+      <button id="btnNextPage" class="icon-btn disabled" title="Next Page">
+        <span class="material-symbols-outlined">arrow_forward_ios</span>
+      </button>
+      <button id="btnAddPage" class="icon-btn" title="Add New Page">
+        <span class="material-symbols-outlined">note_add</span>
+      </button>
     </div>
 
     <!-- Undo / Redo / Clear -->
     <div class="action-group">
-      <button id="btnUndo" class="icon-btn" title="Undo">↩️</button>
-      <button id="btnRedo" class="icon-btn" title="Redo">↪️</button>
-      <button id="btnClear" class="icon-btn danger" title="Clear Board">🗑️</button>
+      <button id="btnUndo" class="icon-btn" title="Undo">
+        <span class="material-symbols-outlined">undo</span>
+      </button>
+      <button id="btnRedo" class="icon-btn" title="Redo">
+        <span class="material-symbols-outlined">redo</span>
+      </button>
+      <button id="btnClear" class="icon-btn danger" title="Clear Board">
+        <span class="material-symbols-outlined">delete</span>
+      </button>
     </div>
 
     <!-- Right Menus (Export & Settings) -->
     <div class="menu-group">
       <!-- Export Menu -->
       <div class="dropdown-container">
-        <button id="btnMainExport" class="icon-btn" title="Export / Import">💾</button>
+        <button id="btnMainExport" class="icon-btn" title="Export / Import">
+          <span class="material-symbols-outlined">save</span>
+        </button>
         <div id="exportDropdownMenu" class="dropdown-menu hidden">
           <button id="btnSaveCurrent">Save Current Page (.oxsb)</button>
           <button id="btnSaveAll">Save Entire Project (.oxsb)</button>
@@ -48,9 +66,11 @@
         </div>
       </div>
 
-      <!-- Settings Menu (New) -->
+      <!-- Settings Menu -->
       <div class="dropdown-container">
-        <button id="btnSettings" class="icon-btn" title="Settings">⋮</button>
+        <button id="btnSettings" class="icon-btn" title="Settings">
+          <span class="material-symbols-outlined">more_vert</span>
+        </button>
         <div id="settingsMenu" class="dropdown-menu hidden">
           <div class="settings-section">
             <h4>Background Color</h4>
@@ -76,19 +96,41 @@
 
   <!-- LEFT TOOLBAR (Drawing Tools) -->
   <div class="toolbar side-toolbar">
-    <button class="tool active" data-tool="pen" title="Pen">✏️</button>
-    <button class="tool" data-tool="marker" title="Marker">🖍️</button>
-    <button class="tool" data-tool="highlighter" title="Highlighter">🖌️</button>
-    <button class="tool" data-tool="eraser" title="Eraser">🧼</button>
+    <button class="tool active" data-tool="pen" title="Pen">
+      <span class="material-symbols-outlined">edit</span>
+    </button>
+    <button class="tool" data-tool="marker" title="Marker">
+      <span class="material-symbols-outlined">draw</span>
+    </button>
+    <button class="tool" data-tool="highlighter" title="Highlighter">
+      <span class="material-symbols-outlined">brush</span>
+    </button>
+    <button class="tool" data-tool="eraser" title="Eraser">
+      <span class="material-symbols-outlined">ink_eraser</span>
+    </button>
     <hr class="toolbar-divider">
-    <button class="tool" data-tool="select" title="Select / Move">🖱️</button>
-    <button class="tool" data-tool="text" title="Text">🔠</button>
-    <button class="tool" data-tool="sticky" title="Sticky Note">📝</button>
-    <button class="tool" data-tool="image" title="Insert Image">🖼️</button>
+    <button class="tool" data-tool="select" title="Select / Move">
+      <span class="material-symbols-outlined">near_me</span>
+    </button>
+    <button class="tool" data-tool="text" title="Text">
+      <span class="material-symbols-outlined">text_fields</span>
+    </button>
+    <button class="tool" data-tool="sticky" title="Sticky Note">
+      <span class="material-symbols-outlined">sticky_note_2</span>
+    </button>
+    <button class="tool" data-tool="image" title="Insert Image">
+      <span class="material-symbols-outlined">image</span>
+    </button>
     <hr class="toolbar-divider">
-    <button class="tool" data-tool="line" title="Line">➖</button>
-    <button class="tool" data-tool="rect" title="Rectangle">▭</button>
-    <button class="tool" data-tool="circle" title="Circle">◯</button>
+    <button class="tool" data-tool="line" title="Line">
+      <span class="material-symbols-outlined">horizontal_rule</span>
+    </button>
+    <button class="tool" data-tool="rect" title="Rectangle">
+      <span class="material-symbols-outlined">rectangle</span>
+    </button>
+    <button class="tool" data-tool="circle" title="Circle">
+      <span class="material-symbols-outlined">circle</span>
+    </button>
   </div>
 
   <!-- FLOATING SIZE/COLOR POPOVER -->
