@@ -2,9 +2,24 @@
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
 
+// Base color palette for horizontal swiping
+const SWIPE_COLORS = ['#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#ffffff'];
+
 let currentTool = 'pen';
 let currentColor = '#000000';
-let currentSize = 4;
+
+const toolMaxSizes = {
+  pen: 50, marker: 100, highlighter: 100, eraser: 100,
+  line: 50, rect: 50, circle: 50, text: 50
+};
+
+const toolSizes = {
+  pen: 4, marker: 8, highlighter: 30, eraser: 40,
+  line: 4, rect: 4, circle: 4, text: 4
+};
+
+let currentSize = toolSizes.pen;
+let markerManuallyChanged = false;
 
 // Load persisted background state or default
 let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#ffffff'; 
@@ -59,6 +74,24 @@ draftCanvas.style.pointerEvents = 'none';
 canvas.parentNode.appendChild(draftCanvas);
 const draftCtx = draftCanvas.getContext('2d');
 
+// --- SMART SIZE LOGIC ---
+function setToolSize(tool, size) {
+  let max = toolMaxSizes[tool] || 50;
+  toolSizes[tool] = Math.max(1, Math.min(max, size));
+
+  // Marker is strictly 2x Pen size until explicitly adjusted
+  if (tool === 'pen' && !markerManuallyChanged) {
+      toolSizes.marker = Math.min(100, toolSizes.pen * 2);
+  }
+  if (tool === 'marker') {
+      markerManuallyChanged = true;
+  }
+
+  if (currentTool === tool) {
+      currentSize = toolSizes[tool];
+  }
+}
+
 // --- DYNAMIC UI THEME ENGINE ---
 function updateTheme(hex) {
   let r = parseInt(hex.substring(1,3), 16) || 255;
@@ -67,7 +100,6 @@ function updateTheme(hex) {
   let brightness = (r * 299 + g * 587 + b * 114) / 1000;
   let isDark = brightness < 130;
   
-  // Create a translucent shade slightly offset from the background color so it stands out beautifully
   let bgR = isDark ? Math.min(255, r + 25) : Math.max(0, r - 15);
   let bgG = isDark ? Math.min(255, g + 25) : Math.max(0, g - 15);
   let bgB = isDark ? Math.min(255, b + 25) : Math.max(0, b - 15);
@@ -297,15 +329,22 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- SWIPE-TO-SIZE & TOOL LOGIC ---
+// --- SWIPE-TO-SIZE & SWIPE-TO-COLOR LOGIC ---
 const sizePopover = document.getElementById('size-popover');
 const sizeValueDisplay = document.getElementById('sizeValue');
 const sizePreviewCircle = document.getElementById('sizePreviewCircle');
 const colorPicker = document.getElementById('colorPicker');
 
+let holdTimer = null;
+let isHolding = false;
 let toolDragActive = false;
 let toolDragLastY = 0;
+let toolDragStartX = 0;
 let toolDragTarget = null;
+let swipeColorIndex = 0;
+
+let ptrDownX = 0;
+let ptrDownY = 0;
 
 function updateSizePreview() {
   if (sizePreviewCircle) {
@@ -365,49 +404,91 @@ document.querySelectorAll('.tool').forEach(button => {
 
     document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
     e.currentTarget.classList.add('active');
+    
     currentTool = selectedTool;
+    currentSize = toolSizes[currentTool];
+    updateSizePreview();
 
     if (['pen', 'marker', 'highlighter', 'eraser', 'line', 'rect', 'circle'].includes(currentTool)) {
-      toolDragActive = true;
-      toolDragTarget = e.currentTarget;
-      toolDragLastY = e.clientY; // Track starting position for relative movement
+      ptrDownX = e.clientX;
+      ptrDownY = e.clientY;
+      
+      // 1.5 Second Hold Trigger
+      holdTimer = setTimeout(() => {
+        isHolding = true;
+        toolDragActive = true;
+        toolDragTarget = e.currentTarget;
+        toolDragLastY = e.clientY;
+        toolDragStartX = e.clientX;
 
-      if (sizePopover) {
-        sizePopover.classList.remove('hidden');
-        updateSizePreview();
-        const rect = e.currentTarget.getBoundingClientRect();
-        sizePopover.style.position = 'fixed';
-        sizePopover.style.left = `${rect.left + (rect.width / 2)}px`;
-        // Position high enough above the finger to allow maximum growth without blocking
-        sizePopover.style.top = `${rect.top - 140}px`; 
-        sizePopover.style.bottom = `auto`;
-        sizePopover.style.transform = 'translateX(-50%)';
-      }
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
+        // Sync starting color index
+        swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
+        if (swipeColorIndex === -1) swipeColorIndex = 0;
+
+        if (sizePopover) {
+          sizePopover.classList.remove('hidden');
+          updateSizePreview();
+          sizePopover.style.position = 'fixed';
+          sizePopover.style.left = `${e.clientX}px`;
+          sizePopover.style.top = `${e.clientY - 160}px`;
+          sizePopover.style.bottom = `auto`;
+          sizePopover.style.transform = 'translateX(-50%)';
+        }
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
+      }, 1500);
     }
   });
 
   button.addEventListener('pointermove', (e) => {
+    // Cancel hold timer early if user drags their finger away quickly before 1.5s
+    if (!isHolding && holdTimer) {
+      if (Math.hypot(e.clientX - ptrDownX, e.clientY - ptrDownY) > 15) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    }
+
     if (!toolDragActive || toolDragTarget !== e.currentTarget) return;
     
-    // Relative tracking: moving up increases deltaY, moving down decreases it.
-    // This perfectly fixes the "running out of screen at the bottom" issue!
+    // Y-Axis: Size Adjustment
     let deltaY = toolDragLastY - e.clientY;
     toolDragLastY = e.clientY; 
-    
-    // Smooth factor modifier
     let newSize = currentSize + (deltaY * 0.8);
-    newSize = Math.max(1, Math.min(100, newSize)); // constrain 1px to 100px
-    currentSize = newSize;
+    setToolSize(currentTool, newSize);
+
+    // X-Axis: Color Adjustment (Swipe 40px to tick through palette)
+    let deltaX = e.clientX - toolDragStartX;
+    let colorShift = Math.floor(deltaX / 40); 
+    if (colorShift !== 0) {
+       swipeColorIndex = (swipeColorIndex + colorShift) % SWIPE_COLORS.length;
+       if (swipeColorIndex < 0) swipeColorIndex += SWIPE_COLORS.length;
+       currentColor = SWIPE_COLORS[swipeColorIndex];
+       
+       const cPicker = document.getElementById('colorPicker');
+       if (cPicker) cPicker.value = currentColor;
+       
+       toolDragStartX = e.clientX; 
+    }
+
+    // Follow the Finger
+    if (sizePopover) {
+        sizePopover.style.left = `${e.clientX}px`;
+        sizePopover.style.top = `${e.clientY - 160}px`;
+    }
 
     if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
     updateSizePreview();
   });
 
   const endDrag = (e) => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
     if (toolDragActive && toolDragTarget === e.currentTarget) {
       toolDragActive = false;
       toolDragTarget = null;
+      isHolding = false;
       if (sizePopover) sizePopover.classList.add('hidden');
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
     }
@@ -515,11 +596,11 @@ function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, hei
       if (stroke.tool === 'highlighter') {
         inkCtx.globalAlpha = 0.35;
         inkCtx.globalCompositeOperation = 'source-over'; 
-        inkCtx.lineWidth = stroke.size * 5;
+        inkCtx.lineWidth = stroke.size;
       } else {
         inkCtx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
-        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
-        inkCtx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
+        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : stroke.size;
+        inkCtx.lineWidth = stroke.tool === 'eraser' ? eraserSize : stroke.size;
       }
       inkCtx.lineCap = 'round';
       inkCtx.lineJoin = 'round';
@@ -999,11 +1080,11 @@ function redrawBoard() {
       if (stroke.tool === 'highlighter') {
         ctx.globalAlpha = 0.35;
         ctx.globalCompositeOperation = 'source-over'; 
-        ctx.lineWidth = stroke.size * 5;
+        ctx.lineWidth = stroke.size;
       } else {
         ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
-        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
-        ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
+        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : stroke.size;
+        ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : stroke.size;
       }
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1089,7 +1170,7 @@ function renderDraftLayer() {
           draftCtx.lineCap = 'round';
           draftCtx.lineJoin = 'round';
           draftCtx.strokeStyle = stroke.color;
-          draftCtx.lineWidth = stroke.size * 5;
+          draftCtx.lineWidth = stroke.size;
           draftCtx.beginPath();
           draftCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
           for (let i = 1; i < stroke.points.length - 1; i++) {
@@ -1196,7 +1277,7 @@ canvas.addEventListener('pointerdown', (e) => {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.fillStyle = currentColor;
     ctx.beginPath();
-    const activeRadius = (tool === 'eraser' ? currentSize * 8 : currentSize) / 2;
+    const activeRadius = currentSize / 2;
     ctx.arc(coords.x, coords.y, activeRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
@@ -1288,8 +1369,8 @@ canvas.addEventListener('pointermove', (e) => {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.strokeStyle = stroke.color;
-        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : (stroke.size * 8);
-        ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : (stroke.tool === 'marker' ? stroke.size * 3 : stroke.size);
+        const eraserSize = stroke.isPalm ? (PALM_ERASER_RADIUS * 2) : stroke.size;
+        ctx.lineWidth = stroke.tool === 'eraser' ? eraserSize : stroke.size;
 
         ctx.beginPath();
         let idx = stroke.lastRenderedIndex;
