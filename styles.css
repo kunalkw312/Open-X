@@ -42,16 +42,23 @@ body, html {
   pointer-events: none; /* Prevents icons from blocking clicks */
 }
 
-/* --- FLOATING TOOLBAR BASE --- */
+/* --- UNIFIED FLOATING TOOLBAR --- */
 .toolbar-container {
   z-index: 10000;
   display: flex;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
   border-radius: 16px;
+  backdrop-filter: blur(12px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.toolbar-bottom {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  align-items: center;
 }
 
 .tool-group {
@@ -63,29 +70,8 @@ body, html {
 .divider {
   width: 1px;
   height: 24px;
-  background-color: #e2e8f0;
+  background-color: var(--tb-border, #e2e8f0);
   margin: 0 4px;
-}
-
-/* --- 2-PART IFP LAYOUT ZONES --- */
-
-/* 1. Main Drawing & Tools - Bottom Center */
-.toolbar-bottom {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  align-items: center;
-}
-
-/* 2. Board Controls & Export - Bottom Right */
-.toolbar-right {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  padding: 8px 14px;
-  align-items: center;
 }
 
 /* --- TOOL BUTTONS --- */
@@ -98,22 +84,21 @@ body, html {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #475569;
   font-weight: 600;
   font-size: 14px;
   transition: all 0.15s ease;
-  /* Required to prevent IFP browsers from doing a default drag when holding to resize */
+  /* Prevents the IFP browser from interpreting the hold-and-swipe as a page scroll */
   touch-action: none; 
 }
 
-.tool:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+/* Active state ignores dynamic tint to remain clearly highlighted */
+.tool.active {
+  background: #5d35ff !important;
+  color: #ffffff !important;
 }
 
-.tool.active {
-  background: #5d35ff;
-  color: #ffffff;
+.tool.active svg {
+  stroke: #ffffff !important;
 }
 
 .tool.disabled {
@@ -138,28 +123,25 @@ input[type="color"]::-webkit-color-swatch-wrapper {
 input[type="color"]::-webkit-color-swatch {
   border: 2px solid #ffffff;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px #cbd5e1;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
 }
 
-/* Size Slider Popover (Hidden dynamically by JS logic during hold-and-swipe) */
+/* Size Slider Popover */
 .size-popover {
   position: fixed;
   z-index: 10001;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  padding: 12px 18px;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  border: 1px solid #e2e8f0;
+  padding: 16px;
 }
 
 .size-preview {
-  width: 24px;
-  height: 24px;
+  /* Forced large box size prevents the 100px circle from squashing into an oval */
+  width: 100px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -167,22 +149,21 @@ input[type="color"]::-webkit-color-swatch {
 
 .size-preview-circle {
   border-radius: 50%;
-  transition: width 0.1s, height 0.1s;
+  flex-shrink: 0;
+  transition: width 0.05s, height 0.05s;
 }
 
-/* --- DROPDOWN MENUS (SETTINGS, MORE & EXPORT) --- */
-.settings-menu-container, .export-menu-container, .more-menu-container {
+/* --- DROPDOWN MENUS (MORE & EXPORT) --- */
+.export-menu-container, .more-menu-container {
   position: relative;
 }
 
 .dropdown-menu {
   position: absolute;
-  bottom: 50px;
-  background: #ffffff;
   border-radius: 12px;
   padding: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--tb-border, #e2e8f0);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -192,7 +173,6 @@ input[type="color"]::-webkit-color-swatch {
 .menu-section-title {
   font-size: 11px;
   font-weight: 700;
-  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
@@ -206,19 +186,13 @@ input[type="color"]::-webkit-color-swatch {
 
 .menu-btn {
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
   cursor: pointer;
   text-align: center;
   transition: background 0.15s ease;
-}
-
-.menu-btn:hover {
-  background: #edf2f7;
+  border: 1px solid var(--tb-border, transparent);
 }
 
 /* --- STICKY NOTES --- */
