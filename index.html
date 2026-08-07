@@ -2,149 +2,119 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Smartboard Enterprise</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smartboard Canvas</title>
   <link rel="stylesheet" href="styles.css">
-  
-  <!-- Professional Icon Library (Google Material Symbols) -->
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
-  
-  <!-- jsPDF for PDF export -->
+  <!-- jsPDF Library for Multi-page PDF Export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 
-  <!-- MAIN CANVAS -->
+  <!-- Primary Drawing Canvas -->
   <canvas id="board"></canvas>
 
-  <!-- HIDDEN FILE INPUTS -->
-  <input type="file" id="imageInput" accept="image/png, image/jpeg, image/webp" style="display: none;">
-  <input type="file" id="projectInput" accept=".oxsb" style="display: none;">
+  <!-- Hidden File Inputs -->
+  <input type="file" id="imageInput" accept="image/*" class="hidden">
+  <input type="file" id="projectInput" accept=".oxsb" class="hidden">
 
-  <!-- TOP TOOLBAR -->
-  <div class="toolbar top-toolbar">
-    <!-- Pagination -->
-    <div class="pagination-group">
-      <button id="btnPrevPage" class="icon-btn disabled" title="Previous Page">
-        <span class="material-symbols-outlined">arrow_back_ios_new</span>
-      </button>
+  <!-- Size Slider Popover -->
+  <div id="size-popover" class="size-popover hidden">
+    <div class="size-preview">
+      <div id="sizePreviewCircle" class="size-preview-circle"></div>
+    </div>
+    <input type="range" id="sizePicker" min="1" max="50" value="4">
+    <span id="sizeValue" style="font-size: 12px; font-weight: 600; color: #475569; min-width: 28px;">4px</span>
+  </div>
+
+  <!-- Main Floating Toolbar -->
+  <div class="toolbar-container">
+    
+    <!-- Drawing & Selection Tools -->
+    <div class="tool-group">
+      <button class="tool active" data-tool="pen" title="Pen">🖊️</button>
+      <button class="tool" data-tool="marker" title="Marker">✒️</button>
+      <button class="tool" data-tool="highlighter" title="Highlighter">🖍️</button>
+      <button class="tool" data-tool="eraser" title="Eraser">🧹</button>
+      <button class="tool" data-tool="select" title="Select / Lasso">🔍</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Shapes & External Elements -->
+    <div class="tool-group">
+      <button class="tool" data-tool="line" title="Line">╱</button>
+      <button class="tool" data-tool="rect" title="Rectangle">▭</button>
+      <button class="tool" data-tool="circle" title="Circle">◯</button>
+      <button class="tool" data-tool="text" title="Add Text">T</button>
+      <button class="tool" data-tool="sticky" title="Sticky Note">📝</button>
+      <button class="tool" data-tool="image" title="Insert Image">🖼️</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Color Picker & Board History -->
+    <div class="tool-group">
+      <input type="color" id="colorPicker" value="#000000" title="Choose Color">
+      <button id="btnUndo" class="tool" title="Undo">↩️</button>
+      <button id="btnRedo" class="tool" title="Redo">↪️</button>
+      <button id="btnClear" class="tool" title="Clear Canvas">🗑️</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Multi-page Controls -->
+    <div class="tool-group">
+      <button id="btnPrevPage" class="tool disabled" title="Previous Page">◀</button>
       <span id="pageDisplay">1/1</span>
-      <button id="btnNextPage" class="icon-btn disabled" title="Next Page">
-        <span class="material-symbols-outlined">arrow_forward_ios</span>
-      </button>
-      <button id="btnAddPage" class="icon-btn" title="Add New Page">
-        <span class="material-symbols-outlined">note_add</span>
-      </button>
+      <button id="btnNextPage" class="tool disabled" title="Next Page">▶</button>
+      <button id="btnAddPage" class="tool" title="Add Page">➕</button>
     </div>
 
-    <!-- Undo / Redo / Clear -->
-    <div class="action-group">
-      <button id="btnUndo" class="icon-btn" title="Undo">
-        <span class="material-symbols-outlined">undo</span>
-      </button>
-      <button id="btnRedo" class="icon-btn" title="Redo">
-        <span class="material-symbols-outlined">redo</span>
-      </button>
-      <button id="btnClear" class="icon-btn danger" title="Clear Board">
-        <span class="material-symbols-outlined">delete</span>
-      </button>
-    </div>
+    <div class="divider"></div>
 
-    <!-- Right Menus (Export & Settings) -->
-    <div class="menu-group">
-      <!-- Export Menu -->
-      <div class="dropdown-container">
-        <button id="btnMainExport" class="icon-btn" title="Export / Import">
-          <span class="material-symbols-outlined">save</span>
-        </button>
+    <!-- Settings & Export Menus -->
+    <div class="tool-group">
+      
+      <!-- Background Customizer -->
+      <div class="settings-menu-container">
+        <button id="btnSettings" class="tool" title="Board Settings">⚙️</button>
+        <div id="settingsDropdownMenu" class="dropdown-menu hidden">
+          <div class="menu-section-title">Background Color</div>
+          <div class="menu-option-grid">
+            <button id="bg-white" class="menu-btn">White</button>
+            <button id="bg-black" class="menu-btn">Black</button>
+            <button id="bg-green" class="menu-btn">Green</button>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px; padding: 0 2px;">
+            <span style="font-size: 12px; font-weight: 600; color: #475569;">Custom Color:</span>
+            <input type="color" id="bg-custom" value="#ffffff">
+          </div>
+
+          <div class="menu-section-title" style="margin-top: 10px;">Pattern Overlay</div>
+          <div class="menu-option-grid">
+            <button id="pat-plain" class="menu-btn">Plain</button>
+            <button id="pat-grid" class="menu-btn">Grid</button>
+            <button id="pat-lines" class="menu-btn">Lines</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- File Saving & Document Export -->
+      <div class="export-menu-container">
+        <button id="btnMainExport" class="tool" title="Export / Save">💾</button>
         <div id="exportDropdownMenu" class="dropdown-menu hidden">
-          <button id="btnSaveCurrent">Save Current Page (.oxsb)</button>
-          <button id="btnSaveAll">Save Entire Project (.oxsb)</button>
-          <button id="btnOpenDoc">Open Project (.oxsb)</button>
-          <hr>
-          <button id="btnExportPDF">Export to PDF</button>
+          <div class="menu-section-title">Project File</div>
+          <button id="btnSaveCurrent" class="menu-btn" style="text-align: left;">Save Current Page (.oxsb)</button>
+          <button id="btnSaveAll" class="menu-btn" style="text-align: left;">Save Full Project (.oxsb)</button>
+          <button id="btnOpenDoc" class="menu-btn" style="text-align: left;">Open Existing Document</button>
+
+          <div class="menu-section-title" style="margin-top: 10px;">Document Export</div>
+          <button id="btnExportPDF" class="menu-btn" style="text-align: left; background: #5d35ff; color: white;">Export Selection to PDF</button>
         </div>
       </div>
 
-      <!-- Settings Menu -->
-      <div class="dropdown-container">
-        <button id="btnSettings" class="icon-btn" title="Settings">
-          <span class="material-symbols-outlined">more_vert</span>
-        </button>
-        <div id="settingsMenu" class="dropdown-menu hidden">
-          <div class="settings-section">
-            <h4>Background Color</h4>
-            <div class="color-options">
-              <button id="btnBgWhite" class="bg-option" style="background: #ffffff; border: 1px solid #ccc;"></button>
-              <button id="btnBgBlack" class="bg-option" style="background: #1e1e1e;"></button>
-              <button id="btnBgGreen" class="bg-option" style="background: #2d5a27;"></button>
-              <input type="color" id="customBgPicker" value="#ffffff" class="color-picker-small" title="Custom Background">
-            </div>
-          </div>
-          <hr>
-          <div class="settings-section">
-            <h4>Background Pattern</h4>
-            <div class="pattern-options">
-              <button id="btnPatternPlain" class="btn-text">Plain</button>
-              <button id="btnPatternGrid" class="btn-text">Gridlines</button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
-  </div>
 
-  <!-- LEFT TOOLBAR (Drawing Tools) -->
-  <div class="toolbar side-toolbar">
-    <button class="tool active" data-tool="pen" title="Pen">
-      <span class="material-symbols-outlined">edit</span>
-    </button>
-    <button class="tool" data-tool="marker" title="Marker">
-      <span class="material-symbols-outlined">draw</span>
-    </button>
-    <button class="tool" data-tool="highlighter" title="Highlighter">
-      <span class="material-symbols-outlined">brush</span>
-    </button>
-    <button class="tool" data-tool="eraser" title="Eraser">
-      <span class="material-symbols-outlined">ink_eraser</span>
-    </button>
-    <hr class="toolbar-divider">
-    <button class="tool" data-tool="select" title="Select / Move">
-      <span class="material-symbols-outlined">near_me</span>
-    </button>
-    <button class="tool" data-tool="text" title="Text">
-      <span class="material-symbols-outlined">text_fields</span>
-    </button>
-    <button class="tool" data-tool="sticky" title="Sticky Note">
-      <span class="material-symbols-outlined">sticky_note_2</span>
-    </button>
-    <button class="tool" data-tool="image" title="Insert Image">
-      <span class="material-symbols-outlined">image</span>
-    </button>
-    <hr class="toolbar-divider">
-    <button class="tool" data-tool="line" title="Line">
-      <span class="material-symbols-outlined">horizontal_rule</span>
-    </button>
-    <button class="tool" data-tool="rect" title="Rectangle">
-      <span class="material-symbols-outlined">rectangle</span>
-    </button>
-    <button class="tool" data-tool="circle" title="Circle">
-      <span class="material-symbols-outlined">circle</span>
-    </button>
-  </div>
-
-  <!-- FLOATING SIZE/COLOR POPOVER -->
-  <div id="size-popover" class="floating-panel">
-    <div class="panel-row">
-      <input type="color" id="colorPicker" value="#000000" title="Ink Color">
-      <div class="preview-container">
-        <div id="sizePreviewCircle"></div>
-      </div>
-    </div>
-    <div class="panel-row">
-      <input type="range" id="sizePicker" min="1" max="50" value="4">
-      <span id="sizeValue">4px</span>
-    </div>
   </div>
 
   <script type="module" src="app.js"></script>
