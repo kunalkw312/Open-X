@@ -59,6 +59,26 @@ draftCanvas.style.pointerEvents = 'none';
 canvas.parentNode.appendChild(draftCanvas);
 const draftCtx = draftCanvas.getContext('2d');
 
+// --- DYNAMIC UI THEME ENGINE ---
+function updateTheme(hex) {
+  let r = parseInt(hex.substring(1,3), 16) || 255;
+  let g = parseInt(hex.substring(3,5), 16) || 255;
+  let b = parseInt(hex.substring(5,7), 16) || 255;
+  let brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  let isDark = brightness < 130;
+  
+  // Create a translucent shade slightly offset from the background color so it stands out beautifully
+  let bgR = isDark ? Math.min(255, r + 25) : Math.max(0, r - 15);
+  let bgG = isDark ? Math.min(255, g + 25) : Math.max(0, g - 15);
+  let bgB = isDark ? Math.min(255, b + 25) : Math.max(0, b - 15);
+  
+  document.documentElement.style.setProperty('--tb-bg', `rgba(${bgR}, ${bgG}, ${bgB}, 0.85)`);
+  document.documentElement.style.setProperty('--tb-border', isDark ? `rgba(255,255,255,0.15)` : `rgba(0,0,0,0.1)`);
+  document.documentElement.style.setProperty('--tb-text', isDark ? '#f8fafc' : '#334155');
+  document.documentElement.style.setProperty('--tb-icon', isDark ? '#cbd5e1' : '#475569');
+  document.documentElement.style.setProperty('--tb-hover', isDark ? `rgba(255,255,255,0.15)` : `rgba(0,0,0,0.06)`);
+}
+
 // --- BACKGROUND GENERATOR ---
 function drawBackground(targetCtx, w, h) {
   targetCtx.fillStyle = currentBgColor;
@@ -90,12 +110,7 @@ function drawBackground(targetCtx, w, h) {
 
 // --- DYNAMIC UI INJECTIONS & EVENT BINDINGS ---
 document.addEventListener("DOMContentLoaded", () => {
-  const pageDisplay = document.getElementById('pageDisplay');
-  if (pageDisplay) {
-    pageDisplay.style.fontSize = '12px';
-    pageDisplay.style.padding = '4px 12px';
-    pageDisplay.style.minWidth = '40px';
-  }
+  updateTheme(currentBgColor);
 
   const customBgInput = document.getElementById('bg-custom');
   if (customBgInput && currentBgColor.startsWith('#')) {
@@ -149,31 +164,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if(callback) callback(selectedIndices);
   };
 
-  const btnSettings = document.getElementById('btnSettings');
-  const settingsMenu = document.getElementById('settingsDropdownMenu');
   const exportMenu = document.getElementById('exportDropdownMenu');
   const btnMore = document.getElementById('btnMore');
   const moreMenu = document.getElementById('moreDropdownMenu');
 
-  if (btnSettings && settingsMenu) {
-    btnSettings.addEventListener('click', (e) => {
-      e.stopPropagation();
-      settingsMenu.classList.toggle('hidden');
-      if (exportMenu) exportMenu.classList.add('hidden');
-      if (moreMenu) moreMenu.classList.add('hidden');
-    });
-  }
   if (btnMore && moreMenu) {
     btnMore.addEventListener('click', (e) => {
       e.stopPropagation();
       moreMenu.classList.toggle('hidden');
       if (exportMenu) exportMenu.classList.add('hidden');
-      if (settingsMenu) settingsMenu.classList.add('hidden');
     });
   }
 
   window.addEventListener('click', (e) => {
-    if (!e.target.closest('.settings-menu-container')) settingsMenu?.classList.add('hidden');
     if (!e.target.closest('.export-menu-container')) exportMenu?.classList.add('hidden');
     if (!e.target.closest('.more-menu-container')) moreMenu?.classList.add('hidden');
   });
@@ -181,6 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const setBg = (color) => { 
     currentBgColor = color; 
     localStorage.setItem('smartboard_bgColor', color); 
+    updateTheme(color);
     redrawBoard(); 
   };
   document.getElementById('bg-white')?.addEventListener('click', () => setBg('#ffffff'));
@@ -300,8 +304,7 @@ const sizePreviewCircle = document.getElementById('sizePreviewCircle');
 const colorPicker = document.getElementById('colorPicker');
 
 let toolDragActive = false;
-let toolDragStartY = 0;
-let toolDragStartSize = 0;
+let toolDragLastY = 0;
 let toolDragTarget = null;
 
 function updateSizePreview() {
@@ -322,7 +325,7 @@ function handleToolAction(selectedTool) {
     return;
   }
   if (selectedTool === 'text') {
-    currentTool = 'text'; // Fallback text prep
+    currentTool = 'text';
     const textVal = prompt("Enter Text:");
     if (textVal) {
       shapes.push({
@@ -343,7 +346,6 @@ function handleToolAction(selectedTool) {
   }
 }
 
-// Bind external tool triggers (like from More Menu)
 document.addEventListener('click', (e) => {
   const trigger = e.target.closest('.tool-trigger');
   if (trigger) {
@@ -368,8 +370,7 @@ document.querySelectorAll('.tool').forEach(button => {
     if (['pen', 'marker', 'highlighter', 'eraser', 'line', 'rect', 'circle'].includes(currentTool)) {
       toolDragActive = true;
       toolDragTarget = e.currentTarget;
-      toolDragStartY = e.clientY;
-      toolDragStartSize = currentSize;
+      toolDragLastY = e.clientY; // Track starting position for relative movement
 
       if (sizePopover) {
         sizePopover.classList.remove('hidden');
@@ -377,8 +378,8 @@ document.querySelectorAll('.tool').forEach(button => {
         const rect = e.currentTarget.getBoundingClientRect();
         sizePopover.style.position = 'fixed';
         sizePopover.style.left = `${rect.left + (rect.width / 2)}px`;
-        // Position right above the finger
-        sizePopover.style.top = `${rect.top - 70}px`; 
+        // Position high enough above the finger to allow maximum growth without blocking
+        sizePopover.style.top = `${rect.top - 140}px`; 
         sizePopover.style.bottom = `auto`;
         sizePopover.style.transform = 'translateX(-50%)';
       }
@@ -388,13 +389,18 @@ document.querySelectorAll('.tool').forEach(button => {
 
   button.addEventListener('pointermove', (e) => {
     if (!toolDragActive || toolDragTarget !== e.currentTarget) return;
-    const deltaY = toolDragStartY - e.clientY;
-    // Slow down the sensitivity for IFP vertical swipe
-    let newSize = Math.round(toolDragStartSize + (deltaY * 0.2));
+    
+    // Relative tracking: moving up increases deltaY, moving down decreases it.
+    // This perfectly fixes the "running out of screen at the bottom" issue!
+    let deltaY = toolDragLastY - e.clientY;
+    toolDragLastY = e.clientY; 
+    
+    // Smooth factor modifier
+    let newSize = currentSize + (deltaY * 0.8);
     newSize = Math.max(1, Math.min(100, newSize)); // constrain 1px to 100px
     currentSize = newSize;
 
-    if (sizeValueDisplay) sizeValueDisplay.textContent = `${currentSize}px`;
+    if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
     updateSizePreview();
   });
 
@@ -433,7 +439,6 @@ if (btnMainExport && exportDropdownMenu) {
   btnMainExport.addEventListener('click', (e) => {
     e.stopPropagation();
     exportDropdownMenu.classList.toggle('hidden');
-    document.getElementById('settingsDropdownMenu')?.classList.add('hidden');
     document.getElementById('moreDropdownMenu')?.classList.add('hidden');
   });
 }
@@ -1271,7 +1276,9 @@ canvas.addEventListener('pointermove', (e) => {
     stroke.points.push(getCoordinates(events[i].clientX, events[i].clientY));
   }
 
-  processEraserClusters();
+  if (activePointers.size >= 2 || activeErasers.size > 0) {
+    processEraserClusters();
+  }
 
   if (!stroke.isInvalidated) {
     if (['pen', 'marker', 'eraser'].includes(stroke.tool)) {
@@ -1287,7 +1294,6 @@ canvas.addEventListener('pointermove', (e) => {
         ctx.beginPath();
         let idx = stroke.lastRenderedIndex;
         
-        // Exact mathematical alignment to eliminate the "weird dot merge jump" at the end.
         if (idx === 1) {
           ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
           const midX = (stroke.points[1].x + stroke.points[2].x) / 2;
