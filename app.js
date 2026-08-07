@@ -1,3 +1,4 @@
+import './styles.css';
 
 // --- GHOST CACHE KILLER ---
 if ('serviceWorker' in navigator) {
@@ -8,12 +9,12 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// --- SPLASH SCREEN ENGINE ---
-
-
-// --- CONFIGURATION ---
+// --- CONFIGURATION & SETTINGS ---
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
+
+let currentBgColor = '#ffffff'; // Default to White
+let currentPattern = 'plain';   // 'plain' or 'grid'
 
 // --- CANVAS SETUP (TRI-LAYER ARCHITECTURE) ---
 const canvas = document.getElementById('board');
@@ -44,70 +45,31 @@ draftCanvas.style.pointerEvents = 'none';
 canvas.parentNode.appendChild(draftCanvas);
 const draftCtx = draftCanvas.getContext('2d');
 
-// --- TEACHER BOARD BACKGROUND STATE ---
-let currentBgColor = '#18392b'; // Default: Classic Classroom Green Chalkboard
-let currentBgPattern = 'plain';  // Options: 'plain', 'grid', 'lines'
-
-// Helper: Color Brightness Detection for Pen Contrast & Grid Visibility
-function isColorDark(hexColor) {
-  if (!hexColor) return true;
-  let hex = hexColor.replace('#', '');
-  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
-  const r = parseInt(hex.substring(0, 2), 16) || 0;
-  const g = parseInt(hex.substring(2, 4), 16) || 0;
-  const b = parseInt(hex.substring(4, 6), 16) || 0;
-  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-  return brightness < 128;
-}
-
-// Draw Background Color & Grid/Line Patterns
-function drawBackground(targetCtx, width, height, bgColor = currentBgColor, bgPattern = currentBgPattern) {
+// --- BACKGROUND RENDER ENGINE ---
+function drawBackground(targetCtx, width, height, scale = 1) {
   targetCtx.save();
-  targetCtx.fillStyle = bgColor;
+  targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+  targetCtx.fillStyle = currentBgColor;
   targetCtx.fillRect(0, 0, width, height);
 
-  const dark = isColorDark(bgColor);
-  const patternColor = dark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.1)';
-  const marginColor = dark ? 'rgba(239, 68, 68, 0.45)' : 'rgba(239, 68, 68, 0.35)';
-
-  targetCtx.strokeStyle = patternColor;
-  targetCtx.lineWidth = 1;
-
-  if (bgPattern === 'grid') {
-    const gridSize = 40;
+  if (currentPattern === 'grid') {
+    // Auto-adjust grid line color based on background darkness
+    const isDarkBg = (currentBgColor === '#1e1e1e' || currentBgColor === '#000000' || currentBgColor === '#2d5a27');
+    targetCtx.strokeStyle = isDarkBg ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)';
+    targetCtx.lineWidth = 1 * scale;
+    const gridSize = 40 * scale;
+    
     targetCtx.beginPath();
-    for (let x = 0; x <= width; x += gridSize) {
+    for (let x = 0; x < width; x += gridSize) {
       targetCtx.moveTo(x, 0);
       targetCtx.lineTo(x, height);
     }
-    for (let y = 0; y <= height; y += gridSize) {
+    for (let y = 0; y < height; y += gridSize) {
       targetCtx.moveTo(0, y);
       targetCtx.lineTo(width, y);
     }
     targetCtx.stroke();
-  } else if (bgPattern === 'lines') {
-    const lineHeight = 40;
-    const topPadding = 60;
-    const marginLeft = 80;
-
-    targetCtx.beginPath();
-    for (let y = topPadding; y <= height; y += lineHeight) {
-      targetCtx.moveTo(0, y);
-      targetCtx.lineTo(width, y);
-    }
-    targetCtx.stroke();
-
-    // Teaching Red Margin Line
-    targetCtx.save();
-    targetCtx.strokeStyle = marginColor;
-    targetCtx.lineWidth = 1.5;
-    targetCtx.beginPath();
-    targetCtx.moveTo(marginLeft, 0);
-    targetCtx.lineTo(marginLeft, height);
-    targetCtx.stroke();
-    targetCtx.restore();
   }
-
   targetCtx.restore();
 }
 
@@ -125,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loader.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:999999;display:none;justify-content:center;align-items:center;color:white;font-size:24px;font-weight:bold;backdrop-filter:blur(4px);flex-direction:column;';
   loader.innerHTML = `
     <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite; margin-bottom: 16px;"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-    Processing Board... Please wait.
+    Processing... Please wait.
     <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
   `;
   document.body.appendChild(loader);
@@ -166,13 +128,11 @@ document.addEventListener("DOMContentLoaded", () => {
     closePagePicker();
     if(callback) callback(selectedIndices);
   };
-
-  setupBackgroundControls();
 });
 
 // --- STATE MANAGEMENT ---
 let currentTool = 'pen';
-let currentColor = '#ffffff'; // Chalk white default for green board
+let currentColor = '#000000';
 let currentSize = 4;
 
 let shapes = []; 
@@ -193,7 +153,7 @@ let redoStack = [];
 let needsDraftRender = false;
 
 // --- PAGE MANAGEMENT ---
-let pagesData = [{ shapes: [], undoStack: [], redoStack: [], bgColor: '#18392b', bgPattern: 'plain' }];
+let pagesData = [{ shapes: [], undoStack: [], redoStack: [] }];
 let currentPageIndex = 0;
 
 function handleScreenAutoAdjust() {
@@ -239,8 +199,6 @@ function syncCurrentPage() {
   pagesData[currentPageIndex].shapes = JSON.parse(JSON.stringify(shapes));
   pagesData[currentPageIndex].undoStack = [...undoStack];
   pagesData[currentPageIndex].redoStack = [...redoStack];
-  pagesData[currentPageIndex].bgColor = currentBgColor;
-  pagesData[currentPageIndex].bgPattern = currentBgPattern;
 }
 
 function loadPage(index) {
@@ -250,10 +208,7 @@ function loadPage(index) {
   shapes = JSON.parse(JSON.stringify(pagesData[currentPageIndex].shapes));
   undoStack = [...pagesData[currentPageIndex].undoStack];
   redoStack = [...pagesData[currentPageIndex].redoStack];
-  currentBgColor = pagesData[currentPageIndex].bgColor || '#18392b';
-  currentBgPattern = pagesData[currentPageIndex].bgPattern || 'plain';
   
-  updateBackgroundUIState();
   redrawBoard();
   updatePaginationUI();
 }
@@ -277,13 +232,7 @@ function updatePaginationUI() {
 
 document.getElementById('btnAddPage')?.addEventListener('click', () => {
   syncCurrentPage();
-  pagesData.push({ 
-    shapes: [], 
-    undoStack: [], 
-    redoStack: [], 
-    bgColor: currentBgColor, 
-    bgPattern: currentBgPattern 
-  });
+  pagesData.push({ shapes: [], undoStack: [], redoStack: [] });
   currentPageIndex = pagesData.length - 1;
   
   shapes = [];
@@ -302,78 +251,7 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- BACKGROUND & PATTERN CONTROLS ---
-function setBoardBackground(color, pattern = currentBgPattern) {
-  currentBgColor = color;
-  currentBgPattern = pattern;
-  pagesData[currentPageIndex].bgColor = currentBgColor;
-  pagesData[currentPageIndex].bgPattern = currentBgPattern;
-
-  // Smart pen contrast auto-adjust
-  const isDark = isColorDark(currentBgColor);
-  if (isDark && currentColor === '#000000') {
-    currentColor = '#ffffff';
-    if (colorPicker) colorPicker.value = '#ffffff';
-  } else if (!isDark && currentColor === '#ffffff') {
-    currentColor = '#000000';
-    if (colorPicker) colorPicker.value = '#000000';
-  }
-
-  updateBackgroundUIState();
-  updateSizePreview();
-  redrawBoard();
-}
-
-function updateBackgroundUIState() {
-  document.querySelectorAll('.bg-preset-btn').forEach(btn => {
-    if (btn.dataset.bg === currentBgColor) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  });
-
-  document.querySelectorAll('.pattern-preset-btn').forEach(btn => {
-    if (btn.dataset.pattern === currentBgPattern) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  });
-
-  const customBgInput = document.getElementById('bgCustomColorPicker');
-  if (customBgInput) customBgInput.value = currentBgColor;
-}
-
-function setupBackgroundControls() {
-  document.getElementById('btnBgGreen')?.addEventListener('click', () => setBoardBackground('#18392b'));
-  document.getElementById('btnBgBlack')?.addEventListener('click', () => setBoardBackground('#121212'));
-  document.getElementById('btnBgWhite')?.addEventListener('click', () => setBoardBackground('#ffffff'));
-
-  document.getElementById('bgCustomColorPicker')?.addEventListener('input', (e) => {
-    setBoardBackground(e.target.value);
-  });
-
-  document.getElementById('btnPatternPlain')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'plain'));
-  document.getElementById('btnPatternGrid')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'grid'));
-  document.getElementById('btnPatternLines')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'lines'));
-
-  const bgMenuToggle = document.getElementById('btnBgSettings');
-  const bgDropdown = document.getElementById('bgDropdownMenu');
-
-  if (bgMenuToggle && bgDropdown) {
-    bgMenuToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      bgDropdown.classList.toggle('hidden');
-    });
-    window.addEventListener('click', () => bgDropdown.classList.add('hidden'));
-    bgDropdown.addEventListener('click', (e) => e.stopPropagation());
-  }
-
-  updateBackgroundUIState();
-}
-
-// --- UI LISTENERS ---
+// --- UI LISTENERS (Including New Settings Menu) ---
 const sizePopover = document.getElementById('size-popover');
 const sizeValueDisplay = document.getElementById('sizeValue');
 const sizePreviewCircle = document.getElementById('sizePreviewCircle');
@@ -438,16 +316,46 @@ document.getElementById('btnClear')?.addEventListener('click', () => {
   redrawBoard();
 });
 
+// Settings & Export Menus Toggle
 const btnMainExport = document.getElementById('btnMainExport');
 const exportDropdownMenu = document.getElementById('exportDropdownMenu');
+const btnSettings = document.getElementById('btnSettings');
+const settingsMenu = document.getElementById('settingsMenu');
 
 if (btnMainExport && exportDropdownMenu) {
   btnMainExport.addEventListener('click', (e) => {
     e.stopPropagation();
     exportDropdownMenu.classList.toggle('hidden');
+    if (settingsMenu) settingsMenu.classList.add('hidden');
   });
-  window.addEventListener('click', () => exportDropdownMenu.classList.add('hidden'));
 }
+
+if (btnSettings && settingsMenu) {
+  btnSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle('hidden');
+    if (exportDropdownMenu) exportDropdownMenu.classList.add('hidden');
+  });
+}
+
+window.addEventListener('click', () => {
+  if (exportDropdownMenu) exportDropdownMenu.classList.add('hidden');
+  if (settingsMenu) settingsMenu.classList.add('hidden');
+});
+
+// Board Preferences Listeners
+document.getElementById('btnBgWhite')?.addEventListener('click', () => { currentBgColor = '#ffffff'; redrawBoard(); });
+document.getElementById('btnBgBlack')?.addEventListener('click', () => { currentBgColor = '#1e1e1e'; redrawBoard(); });
+document.getElementById('btnBgGreen')?.addEventListener('click', () => { currentBgColor = '#2d5a27'; redrawBoard(); });
+
+document.getElementById('customBgPicker')?.addEventListener('input', (e) => {
+  currentBgColor = e.target.value;
+  redrawBoard();
+});
+
+document.getElementById('btnPatternPlain')?.addEventListener('click', () => { currentPattern = 'plain'; redrawBoard(); });
+document.getElementById('btnPatternGrid')?.addEventListener('click', () => { currentPattern = 'grid'; redrawBoard(); });
+
 
 // --- IMAGE IMPORT HANDLER ---
 const imageInput = document.getElementById('imageInput');
@@ -480,10 +388,11 @@ if (imageInput) {
   });
 }
 
-// --- UNIVERSAL OFFSCREEN RENDERER (For Exports & Thumbnails) ---
-function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, height, pageBgColor = currentBgColor, pageBgPattern = currentBgPattern) {
+// --- UNIVERSAL OFFSCREEN RENDERER (For PDFs & Thumbnails) ---
+function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, height) {
   targetCtx.save();
-  drawBackground(targetCtx, width / scaleMultiplier, height / scaleMultiplier, pageBgColor, pageBgPattern);
+  // Apply Background Color & Pattern to Exports
+  drawBackground(targetCtx, width, height, scaleMultiplier);
   targetCtx.scale(scaleMultiplier, scaleMultiplier);
   
   pageShapes.forEach(stroke => {
@@ -551,7 +460,7 @@ function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, hei
   targetCtx.restore();
 }
 
-function generatePageImage(pageData, scaleForThumb = 0.15, quality = 0.75) {
+function generatePageImage(pageShapes, scaleForThumb = 0.15, quality = 0.75) {
   const cssW = window.innerWidth;
   const cssH = window.innerHeight;
   const physicalW = cssW * scaleForThumb;
@@ -562,7 +471,7 @@ function generatePageImage(pageData, scaleForThumb = 0.15, quality = 0.75) {
   tempCanvas.height = physicalH;
   const tCtx = tempCanvas.getContext('2d');
   
-  renderShapesToCanvas(tCtx, pageData.shapes, scaleForThumb, physicalW, physicalH, pageData.bgColor, pageData.bgPattern);
+  renderShapesToCanvas(tCtx, pageShapes, scaleForThumb, physicalW, physicalH);
   return tempCanvas.toDataURL('image/jpeg', quality);
 }
 
@@ -578,7 +487,7 @@ function openPagePicker(callback) {
   grid.innerHTML = '';
   
   pagesData.forEach((page, index) => {
-    const thumbUrl = generatePageImage(page, 0.15, 0.5); 
+    const thumbUrl = generatePageImage(page.shapes, 0.15, 0.5); 
     
     const card = document.createElement('div');
     card.className = 'page-card selected'; 
@@ -653,10 +562,8 @@ document.getElementById('btnSaveCurrent')?.addEventListener('click', () => {
 
   syncCurrentPage();
   const singlePageData = {
-    version: "1.2",
+    version: "1.1",
     pages: [{
-      bgColor: pagesData[currentPageIndex].bgColor,
-      bgPattern: pagesData[currentPageIndex].bgPattern,
       shapes: pagesData[currentPageIndex].shapes.map(s => {
         if (s.tool === 'image') return { ...s, imgObj: null };
         return s;
@@ -673,15 +580,13 @@ document.getElementById('btnSaveAll')?.addEventListener('click', () => {
     if (!fileName.endsWith('.oxsb')) fileName += '.oxsb';
 
     const exportPages = exportIndices.map(idx => ({
-      bgColor: pagesData[idx].bgColor,
-      bgPattern: pagesData[idx].bgPattern,
       shapes: pagesData[idx].shapes.map(s => {
         if (s.tool === 'image') return { ...s, imgObj: null };
         return s;
       })
     }));
 
-    downloadFile(fileName, JSON.stringify({ version: "1.2", pages: exportPages }));
+    downloadFile(fileName, JSON.stringify({ version: "1.1", pages: exportPages }));
   });
 });
 
@@ -699,8 +604,6 @@ if (btnOpenDoc && projectInput) {
         const data = JSON.parse(event.target.result);
         if (data.pages && Array.isArray(data.pages)) {
           pagesData = data.pages.map(p => ({
-            bgColor: p.bgColor || '#18392b',
-            bgPattern: p.bgPattern || 'plain',
             shapes: p.shapes.map(s => {
               if (s.tool === 'image' && s.imgSrc) {
                 const img = new Image();
@@ -757,9 +660,8 @@ document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
         const tCtx = tempCanvas.getContext('2d');
 
         exportIndices.forEach((pageIdx, step) => {
-          const page = pagesData[pageIdx];
-          renderShapesToCanvas(tCtx, page.shapes, exportScale, exportWidth, exportHeight, page.bgColor, page.bgPattern);
-          const imgData = tempCanvas.toDataURL('image/jpeg', 0.85);
+          renderShapesToCanvas(tCtx, pagesData[pageIdx].shapes, exportScale, exportWidth, exportHeight);
+          const imgData = tempCanvas.toDataURL('image/jpeg', 0.7);
           if (step > 0) pdf.addPage([exportWidth, exportHeight], 'landscape');
           pdf.addImage(imgData, 'JPEG', 0, 0, exportWidth, exportHeight);
         });
@@ -768,7 +670,7 @@ document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
 
       } catch (error) {
         console.error("PDF Export failed:", error);
-        alert("An error occurred during export.");
+        alert("An error occurred. The board might be too large for the device memory.");
       } finally {
         if(loader) loader.style.display = 'none';
       }
@@ -816,7 +718,7 @@ document.getElementById('btnRedo')?.addEventListener('click', () => {
   }
 });
 
-// --- MULTI-TOUCH CLUSTER ENGINE (N-FINGER ERASER) ---
+// --- MULTI-TOUCH CLUSTER ENGINE (N-FINGER DETECTION) ---
 function getClusters(pointersMap, radius) {
   const pointers = Array.from(pointersMap.entries()).map(([id, data]) => {
     const lastPt = data.points[data.points.length - 1];
@@ -870,6 +772,7 @@ function processEraserClusters() {
       }
       eStroke.points.push({ x: cx, y: cy });
       
+      // Target live INK canvas for pristine true erasing
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
@@ -975,16 +878,9 @@ function getShapeAtPosition(x, y) {
 
 // --- TRI-LAYER SCREEN REDRAW ---
 function redrawBoard() {
-  const cssW = window.innerWidth;
-  const cssH = window.innerHeight;
-
-  bgCtx.save();
-  bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+  // Clear and Re-draw custom Background logic
   bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-  bgCtx.restore();
-
-  // Render Chalkboard / Whiteboard Background & Patterns
-  drawBackground(bgCtx, cssW, cssH, currentBgColor, currentBgPattern);
+  drawBackground(bgCtx, bgCanvas.width, bgCanvas.height);
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1042,7 +938,7 @@ function redrawBoard() {
     }
   });
 
-  // UI SELECTION OVERLAYS
+  // UI OVERLAYS
   selectedShapes.forEach(stroke => {
     ctx.save();
     ctx.strokeStyle = '#5d35ff'; 
@@ -1415,7 +1311,7 @@ function createStickyNote(x = window.innerWidth / 2 - 90, y = window.innerHeight
   note.style.top = `${y}px`;
   note.style.zIndex = '9999';
 
-  const noteBg = (currentColor === '#000000' || currentColor === '#ffffff') ? '#fef08a' : currentColor;
+  const noteBg = currentColor === '#000000' ? '#fef08a' : currentColor;
   note.style.backgroundColor = noteBg;
 
   note.innerHTML = `
