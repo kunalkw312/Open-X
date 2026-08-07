@@ -114,7 +114,7 @@
     <div class="popover-arrow"></div>
     <div style="font-size: 12px; font-weight: 700; margin-bottom: 12px; color: var(--tb-text); text-transform: uppercase;">Tool Color</div>
     <div id="colorGrid" class="color-grid">
-      <!-- Color buttons dynamically injected by app.js -->
+      <!-- Color buttons (and the rainbow shortcut) dynamically injected by app.js -->
     </div>
   </div>
 
@@ -162,6 +162,9 @@
 
     <!-- Actions, Save & More Menu -->
     <div class="tool-group">
+      
+      <!-- Native Color Picker (Now linked to the active tool + acts as the rainbow picker) -->
+      <input type="color" id="colorPicker" value="#000000" title="Custom Rainbow Color" style="margin-right: 4px;">
       
       <button id="btnUndo" class="tool" title="Undo">
         <svg viewBox="0 0 24 24"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
