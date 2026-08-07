@@ -1,68 +1,111 @@
+/* --- BASE RESET & TYPOGRAPHY --- */
 * {
   box-sizing: border-box;
-  user-select: none; /* Prevents text highlighting while drawing */
-  -webkit-user-select: none;
-}
-
-body, html {
   margin: 0;
   padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  user-select: none; /* Prevents text selection while drawing */
 }
 
-#board {
-  display: block;
-  position: absolute;
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #121212; /* Fallback dark background */
+  touch-action: none; /* Prevents browser pull-to-refresh & scrolling */
+}
+
+/* --- SPLASH SCREEN --- */
+#splash-container {
+  position: fixed;
   top: 0;
   left: 0;
-  z-index: 1;
-  /* CRITICAL: Prevents Android from consuming palm touches for scrolling/swiping */
-  touch-action: none; 
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  transition: opacity 1s ease, visibility 1s ease;
+}
+
+#splash-container.fade-out {
+  opacity: 0;
+  visibility: hidden;
+}
+
+#intro-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#btn-skip-intro {
+  position: absolute;
+  bottom: 40px;
+  right: 40px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  border-radius: 30px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+#btn-skip-intro:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* --- CANVAS LAYER --- */
+#board {
+  display: block;
+  width: 100vw;
+  height: 100vh;
   cursor: crosshair;
 }
 
-/* Sleek Single-Line Floating Toolbar */
+/* --- FLOATING TOOLBAR --- */
 #toolbar {
-  position: absolute;
-  bottom: 25px;
+  position: fixed;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10;
   display: flex;
-  flex-wrap: nowrap; /* Forces a single line */
   align-items: center;
-  gap: 10px;
-  
-  /* Modern frosted glass pill look */
+  gap: 12px;
+  padding: 10px 16px;
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  padding: 10px 15px;
-  border-radius: 50px;
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
   border: 1px solid rgba(0, 0, 0, 0.05);
-  
-  /* Allows horizontal scrolling on mobile without breaking layout */
+  z-index: 100;
+  flex-wrap: nowrap;
+  overflow-x: auto; /* Handles small screens */
   max-width: 95vw;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
-/* Hides the scrollbar for a cleaner look on mobile */
+/* Hide scrollbar for toolbar on small screens */
 #toolbar::-webkit-scrollbar {
   display: none;
+}
+#toolbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .tool-group {
   display: flex;
   align-items: center;
   gap: 6px;
-  border-right: 2px solid #eaeaea;
   padding-right: 12px;
-  padding-left: 2px;
+  border-right: 2px solid #e2e8f0;
 }
 
 .tool-group:last-child {
@@ -70,82 +113,295 @@ body, html {
   padding-right: 0;
 }
 
-/* Circular, elegant icon buttons */
-button {
-  width: 44px;
-  height: 44px;
-  padding: 10px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: #555555;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0; /* Prevents buttons from squishing */
+.relative {
+  position: relative;
 }
 
-button svg {
-  width: 22px;
-  height: 22px;
+/* --- BUTTONS & TOOLS --- */
+button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.2s ease;
+  color: #334155;
 }
 
 button:hover {
-  background: #f0f4f8;
-  color: #111111;
+  background: #f1f5f9;
+  transform: translateY(-2px);
 }
 
 button:active {
-  transform: scale(0.92);
+  transform: translateY(0);
 }
 
 button.active {
-  background: #007bff;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+  background: #e0e7ff;
+  color: #4f46e5;
+  box-shadow: inset 0 0 0 1px #818cf8;
 }
 
-/* Specific Action Colors */
-button.danger:hover {
-  background: #ffebee;
-  color: #d32f2f;
+button.disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
-button.success:hover {
-  background: #e8f5e9;
-  color: #2e7d32;
+/* --- COLOR & SIZE PICKER --- */
+input[type="color"] {
+  -webkit-appearance: none;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-/* Color Picker Styling */
-#colorPicker {
-  width: 36px;
-  height: 36px;
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
   border: none;
   border-radius: 50%;
-  cursor: pointer;
-  padding: 0;
-  background: transparent;
-  overflow: hidden;
-  flex-shrink: 0;
 }
 
-#colorPicker::-webkit-color-swatch-wrapper {
-  padding: 0;
+.size-color-group {
+  position: relative;
 }
 
-#colorPicker::-webkit-color-swatch {
-  border: 2px solid #e0e0e0;
+#size-popover {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+
+#size-popover.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#size-popover::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 12px;
+  height: 12px;
+  background: white;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.size-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+#sizePreviewCircle {
   border-radius: 50%;
+  background: #000;
 }
 
-/* Size Slider */
-#sizePicker {
-  width: 100px;
-  height: 36px;
-  cursor: pointer;
-  margin: 0 5px;
-  flex-shrink: 0;
-  accent-color: #007bff;
+/* --- DROPDOWN MENUS --- */
+.dropdown-menu {
+  position: absolute;
+  bottom: 56px;
+  right: 0;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+  transition: opacity 0.2s, transform 0.2s;
+  transform-origin: bottom center;
+}
+
+.dropdown-menu.hidden {
+  opacity: 0;
+  transform: scaleY(0.9);
+  pointer-events: none;
+}
+
+.dropdown-menu h4 {
+  font-size: 13px;
+  color: #64748b;
+  margin: 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dropdown-menu button {
+  width: 100%;
+  height: auto;
+  padding: 8px 12px;
+  font-size: 14px;
+  justify-content: flex-start;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.dropdown-menu hr {
+  border: 0;
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}
+
+/* Background & Pattern Pickers */
+.bg-options, .pattern-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bg-preset-btn {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  border: 2px solid transparent !important;
+}
+
+.bg-preset-btn.active {
+  border-color: #4f46e5 !important;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #4f46e5;
+}
+
+.pattern-preset-btn {
+  flex: 1;
+  font-size: 12px !important;
+  padding: 6px !important;
+  background: #f8fafc !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+.pattern-preset-btn.active {
+  background: #e0e7ff !important;
+  border-color: #818cf8 !important;
+  color: #4f46e5 !important;
+}
+
+.custom-bg-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+/* --- PAGINATION --- */
+#pageDisplay {
+  font-weight: 600;
+  color: #334155;
+  background: #f1f5f9;
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* --- STICKY NOTES --- */
+.sticky-note {
+  position: absolute;
+  width: 200px;
+  min-height: 200px;
+  box-shadow: 2px 4px 15px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  border-radius: 2px 12px 12px 12px;
+  overflow: hidden;
+}
+
+.sticky-header {
+  height: 30px;
+  background: rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 8px;
+  cursor: grab;
+}
+
+.sticky-header:active {
+  cursor: grabbing;
+}
+
+.sticky-title {
+  font-size: 11px;
+  font-weight: bold;
+  color: rgba(0,0,0,0.6);
+}
+
+.sticky-delete {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  color: rgba(0,0,0,0.6);
+  padding: 0;
+}
+
+.sticky-delete:hover {
+  background: rgba(255,0,0,0.2);
+  color: red;
+}
+
+.sticky-textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  resize: none;
+  padding: 12px;
+  font-size: 16px;
+  font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+  color: #333;
+  outline: none;
+}
+
+/* --- RESPONSIVE ADJUSTMENTS --- */
+@media (max-width: 768px) {
+  #toolbar {
+    bottom: 12px;
+    padding: 8px;
+    gap: 6px;
+  }
+  
+  button {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+  
+  .tool-group {
+    padding-right: 6px;
+  }
 }
