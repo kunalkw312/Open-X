@@ -1,5 +1,3 @@
-import './styles.css';
-
 // --- CONFIGURATION & STATE ---
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
