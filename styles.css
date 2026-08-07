@@ -113,8 +113,7 @@ body, html {
   outline: none !important;
 }
 
-/* Active and Hover states are exactly the same now! 
-   (We do NOT force text color here, so JS can update the SVG to the chosen color) */
+/* Active and Hover states are exactly the same now to match the theme cleanly */
 .tool:hover, .tool.active {
   background: var(--tb-hover) !important;
 }
