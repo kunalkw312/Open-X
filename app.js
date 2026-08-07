@@ -22,7 +22,7 @@ let currentSize = toolSizes.pen;
 let markerManuallyChanged = false;
 
 // Load persisted background state or default
-let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#ffffff'; 
+let currentBgColor = localStorage.getItem('smartboard_bgColor') || '#121212'; 
 let currentBgPattern = localStorage.getItem('smartboard_bgPattern') || 'plain'; 
 
 let shapes = []; 
@@ -106,7 +106,7 @@ function updateTheme(hex) {
   
   document.documentElement.style.setProperty('--tb-bg', `rgba(${bgR}, ${bgG}, ${bgB}, 0.85)`);
   document.documentElement.style.setProperty('--tb-border', isDark ? `rgba(255,255,255,0.15)` : `rgba(0,0,0,0.1)`);
-  document.documentElement.style.setProperty('--tb-text', isDark ? '#f8fafc' : '#334155');
+  document.documentElement.style.setProperty('--tb-text', isDark ? '#f8fafc' : '#1e293b');
   document.documentElement.style.setProperty('--tb-icon', isDark ? '#cbd5e1' : '#475569');
   document.documentElement.style.setProperty('--tb-hover', isDark ? `rgba(255,255,255,0.15)` : `rgba(0,0,0,0.06)`);
 }
@@ -147,6 +147,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const customBgInput = document.getElementById('bg-custom');
   if (customBgInput && currentBgColor.startsWith('#')) {
     customBgInput.value = currentBgColor.slice(0, 7);
+  }
+
+  // Inject Color Strip UI
+  const colorStripContainer = document.getElementById('colorStripContainer');
+  if (colorStripContainer) {
+    SWIPE_COLORS.forEach((color, i) => {
+      const dot = document.createElement('div');
+      dot.className = 'color-dot';
+      dot.dataset.index = i;
+      dot.style.backgroundColor = color;
+      if (color === '#ffffff') dot.style.border = '1px solid #cbd5e1';
+      colorStripContainer.appendChild(dot);
+    });
   }
 
   const loader = document.createElement('div');
@@ -213,7 +226,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!e.target.closest('.more-menu-container')) moreMenu?.classList.add('hidden');
   });
 
-  // Global Context Menu Prevention during drag
   window.addEventListener('contextmenu', (e) => {
     if (toolDragActive) e.preventDefault();
   });
@@ -334,19 +346,18 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- GLOBAL SWIPE-TO-SIZE & SWIPE-TO-COLOR LOGIC ---
+// --- GLOBAL DIRECT SWIPE LOGIC (NO TIMER) ---
 const sizePopover = document.getElementById('size-popover');
 const sizeValueDisplay = document.getElementById('sizeValue');
 const sizePreviewCircle = document.getElementById('sizePreviewCircle');
 const colorPicker = document.getElementById('colorPicker');
 
-let holdTimer = null;
 let toolDragActive = false;
+let dragAxis = null; // 'x' for color, 'y' for size
 let toolDragLastY = 0;
 let toolDragStartX = 0;
+let toolDragStartY = 0;
 let swipeColorIndex = 0;
-let ptrDownX = 0;
-let ptrDownY = 0;
 
 function updateSizePreview() {
   if (sizePreviewCircle) {
@@ -354,6 +365,18 @@ function updateSizePreview() {
     sizePreviewCircle.style.height = `${currentSize}px`;
     sizePreviewCircle.style.backgroundColor = currentColor;
   }
+}
+
+function updateColorStrip() {
+  document.querySelectorAll('.color-dot').forEach((dot, i) => {
+    if (i === swipeColorIndex) {
+      dot.style.transform = 'scale(1.5)';
+      dot.style.boxShadow = '0 0 0 2px var(--tb-bg), 0 0 0 4px var(--tb-text)';
+    } else {
+      dot.style.transform = 'scale(1)';
+      dot.style.boxShadow = 'none';
+    }
+  });
 }
 
 function handleToolAction(selectedTool) {
@@ -394,9 +417,8 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// 1. Setup the Long Press on the Buttons
+// 1. Tool Pressed - Set Active immediately, prepare for potential drag
 document.querySelectorAll('.tool').forEach(button => {
-  // Prevent default context menu on tools immediately
   button.oncontextmenu = (e) => e.preventDefault();
 
   button.addEventListener('pointerdown', (e) => {
@@ -408,6 +430,7 @@ document.querySelectorAll('.tool').forEach(button => {
       return;
     }
 
+    // Instantly activate tool
     document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
     e.currentTarget.classList.add('active');
     
@@ -416,95 +439,99 @@ document.querySelectorAll('.tool').forEach(button => {
     updateSizePreview();
 
     if (['pen', 'marker', 'highlighter', 'eraser', 'line', 'rect', 'circle'].includes(currentTool)) {
-      ptrDownX = e.clientX;
-      ptrDownY = e.clientY;
-      
-      // Timer triggers after 1 second (lowered from 1.5s for usability)
-      holdTimer = setTimeout(() => {
-        toolDragActive = true;
-        toolDragLastY = e.clientY;
-        toolDragStartX = e.clientX;
+      toolDragActive = true;
+      dragAxis = null;
+      toolDragStartX = e.clientX;
+      toolDragStartY = e.clientY;
+      toolDragLastY = e.clientY;
 
-        swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
-        if (swipeColorIndex === -1) swipeColorIndex = 0;
+      swipeColorIndex = SWIPE_COLORS.indexOf(currentColor);
+      if (swipeColorIndex === -1) swipeColorIndex = 0;
 
-        if (sizePopover) {
-          sizePopover.classList.remove('hidden');
-          updateSizePreview();
-          sizePopover.style.position = 'fixed';
-          sizePopover.style.left = `${e.clientX}px`;
-          sizePopover.style.top = `${e.clientY - 160}px`;
-          sizePopover.style.bottom = `auto`;
-          sizePopover.style.transform = 'translateX(-50%)';
-        }
-      }, 1000); 
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch(err) {}
     }
   });
 });
 
-// 2. Track Finger Globally Across Window (Fixes the "Stopped Working" bug)
+// 2. Track Finger Globally - Lock Axis on first 15px movement
 window.addEventListener('pointermove', (e) => {
-  // If moving too much before the timer hits, cancel it (Jitter tolerance: 30px)
-  if (holdTimer) {
-    if (Math.hypot(e.clientX - ptrDownX, e.clientY - ptrDownY) > 30) {
-      clearTimeout(holdTimer);
-      holdTimer = null;
-    }
-  }
-
-  // If the drag is fully active
   if (toolDragActive) {
-    e.preventDefault(); // Stop screen from scrolling on IFP
+    let dx = e.clientX - toolDragStartX;
+    let dy = e.clientY - toolDragStartY;
 
-    // Y-Axis: Size Adjustment
-    let deltaY = toolDragLastY - e.clientY;
-    toolDragLastY = e.clientY; 
-    let newSize = currentSize + (deltaY * 0.8);
-    setToolSize(currentTool, newSize);
-
-    // X-Axis: Color Adjustment (Swipe 40px left/right to change)
-    let deltaX = e.clientX - toolDragStartX;
-    let colorShift = Math.floor(deltaX / 40); 
-    if (Math.abs(colorShift) > 0) {
-       swipeColorIndex = (swipeColorIndex + colorShift) % SWIPE_COLORS.length;
-       if (swipeColorIndex < 0) swipeColorIndex += SWIPE_COLORS.length;
-       currentColor = SWIPE_COLORS[swipeColorIndex];
-       
-       const cPicker = document.getElementById('colorPicker');
-       if (cPicker) cPicker.value = currentColor;
-       
-       toolDragStartX = e.clientX; 
+    // Determine Axis if not locked yet
+    if (!dragAxis) {
+      if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+        dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        
+        if (sizePopover) {
+          sizePopover.classList.remove('hidden');
+          sizePopover.style.position = 'fixed';
+          sizePopover.style.left = `${toolDragStartX}px`;
+          sizePopover.style.top = `${toolDragStartY - 160}px`;
+          
+          if (dragAxis === 'x') {
+             document.getElementById('sizePreviewContainer').style.display = 'none';
+             document.getElementById('sizeValue').style.display = 'none';
+             document.getElementById('colorStripContainer').style.display = 'flex';
+             updateColorStrip();
+          } else {
+             document.getElementById('sizePreviewContainer').style.display = 'flex';
+             document.getElementById('sizeValue').style.display = 'block';
+             document.getElementById('colorStripContainer').style.display = 'none';
+             updateSizePreview();
+          }
+        }
+      }
     }
 
-    // Follow the Finger
-    if (sizePopover) {
-        sizePopover.style.left = `${e.clientX}px`;
-        sizePopover.style.top = `${e.clientY - 160}px`;
+    // Process Movement based on locked Axis
+    if (dragAxis) {
+      e.preventDefault(); 
+      
+      if (dragAxis === 'y') {
+        let stepY = toolDragLastY - e.clientY;
+        toolDragLastY = e.clientY; 
+        let newSize = currentSize + (stepY * 0.8);
+        setToolSize(currentTool, newSize);
+        if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
+        updateSizePreview();
+      } 
+      else if (dragAxis === 'x') {
+        let colorShift = Math.floor((e.clientX - toolDragStartX) / 35); 
+        if (Math.abs(colorShift) > 0) {
+           swipeColorIndex = (swipeColorIndex + colorShift) % SWIPE_COLORS.length;
+           if (swipeColorIndex < 0) swipeColorIndex += SWIPE_COLORS.length;
+           currentColor = SWIPE_COLORS[swipeColorIndex];
+           
+           const cPicker = document.getElementById('colorPicker');
+           if (cPicker) cPicker.value = currentColor;
+           
+           toolDragStartX = e.clientX; 
+           updateColorStrip();
+        }
+      }
+      
+      if (sizePopover) {
+          sizePopover.style.left = `${e.clientX}px`;
+          sizePopover.style.top = `${e.clientY - 160}px`;
+      }
     }
-
-    if (sizeValueDisplay) sizeValueDisplay.textContent = `${Math.round(currentSize)}px`;
-    updateSizePreview();
   }
 }, { passive: false });
 
 // 3. Clear State globally when finger lifts
 window.addEventListener('pointerup', (e) => {
-  if (holdTimer) {
-    clearTimeout(holdTimer);
-    holdTimer = null;
-  }
   if (toolDragActive) {
     toolDragActive = false;
+    dragAxis = null;
     if (sizePopover) sizePopover.classList.add('hidden');
   }
 });
 window.addEventListener('pointercancel', (e) => {
-  if (holdTimer) {
-    clearTimeout(holdTimer);
-    holdTimer = null;
-  }
   if (toolDragActive) {
     toolDragActive = false;
+    dragAxis = null;
     if (sizePopover) sizePopover.classList.add('hidden');
   }
 });
@@ -1243,8 +1270,7 @@ requestAnimationFrame(renderDraftLayer);
 // --- POINTER LISTENERS & SELECT MODE ---
 
 canvas.addEventListener('pointerdown', (e) => {
-  // Ignore drawing if we are actively holding a tool to resize
-  if (toolDragActive || holdTimer) return;
+  if (toolDragActive) return;
 
   e.preventDefault();
   
@@ -1300,7 +1326,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
 
 canvas.addEventListener('pointermove', (e) => {
-  if (toolDragActive || holdTimer) return;
+  if (toolDragActive) return;
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
 
@@ -1425,7 +1451,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function handlePointerEnd(e) {
-  if (toolDragActive || holdTimer) return;
+  if (toolDragActive) return;
   e.preventDefault();
   
   try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
