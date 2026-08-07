@@ -13,15 +13,17 @@ const toolColors = {
 };
 
 const toolMaxSizes = {
-  pen: 50, marker: 100, highlighter: 100, eraser: 100,
-  line: 50, rect: 50, circle: 50, text: 50
+  pen: 30, marker: 60, highlighter: 60, eraser: 100,
+  line: 30, rect: 30, circle: 30, text: 30
 };
 
 const toolSizes = {
-  pen: 3, marker: 15, highlighter: 30, eraser: 40,
+  pen: 3, marker: 6, highlighter: 30, eraser: 40,
   line: 3, rect: 3, circle: 3, text: 3
 };
 
+let currentSize = toolSizes.pen;
+let currentColor = toolColors.pen;
 let markerManuallyChanged = false;
 
 // Load persisted background state or default
@@ -83,10 +85,14 @@ function setToolSize(tool, size) {
   toolSizes[tool] = Math.max(1, Math.min(max, size));
 
   if (tool === 'pen' && !markerManuallyChanged) {
-      toolSizes.marker = Math.min(100, toolSizes.pen * 2);
+      toolSizes.marker = Math.min(60, toolSizes.pen * 2);
   }
   if (tool === 'marker') {
       markerManuallyChanged = true;
+  }
+
+  if (currentTool === tool) {
+      currentSize = toolSizes[tool];
   }
 }
 
@@ -168,6 +174,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (color === '#ffffff') btn.style.border = '1px solid #cbd5e1';
       btn.addEventListener('click', () => {
         toolColors[currentTool] = color;
+        currentColor = color; // Update active drawing color
         updateToolIcons();
         document.getElementById('color-popover').classList.add('hidden');
       });
@@ -375,10 +382,16 @@ function closePopovers() {
 }
 
 function positionPopover(popover, targetBtn) {
+  popover.style.visibility = 'hidden'; 
   popover.classList.remove('hidden');
-  const rect = targetBtn.getBoundingClientRect();
-  popover.style.left = `${rect.left + (rect.width / 2)}px`;
-  popover.style.top = `${rect.top - popover.offsetHeight - 15}px`; 
+  
+  // Allow DOM to compute dimensions, then anchor perfectly based on targetBtn bounds
+  requestAnimationFrame(() => {
+    const rect = targetBtn.getBoundingClientRect();
+    popover.style.left = `${rect.left + (rect.width / 2)}px`;
+    popover.style.top = `${rect.top - popover.offsetHeight - 15}px`; 
+    popover.style.visibility = 'visible';
+  });
 }
 
 function updateSizePreview() {
@@ -393,17 +406,15 @@ function updateSizePreview() {
 sizePicker?.addEventListener('input', (e) => {
   let val = parseInt(e.target.value);
   let threshold = 1;
-  let steps = [];
+  let steps = [1];
 
   if (['pen', 'line', 'rect', 'circle', 'text'].includes(currentTool)) {
-      steps = [1];
-      for(let i=3; i<=50; i+=3) steps.push(i);
+      for(let i=3; i<=30; i+=3) steps.push(i);
+      threshold = 1;
   } else if (['marker', 'highlighter'].includes(currentTool)) {
-      steps = [1];
-      for(let i=5; i<=100; i+=5) steps.push(i);
-      threshold = 2; // wider grab for larger scales
+      for(let i=6; i<=60; i+=6) steps.push(i);
+      threshold = 2; // wider grab for marker/highlighter scale
   } else {
-      steps = [1];
       for(let i=5; i<=100; i+=5) steps.push(i);
       threshold = 2;
   }
@@ -412,7 +423,7 @@ sizePicker?.addEventListener('input', (e) => {
   for (let step of steps) {
       if (Math.abs(val - step) <= threshold) {
           val = step;
-          e.target.value = val; // Visually bump the slider handle
+          e.target.value = val; 
           break;
       }
   }
@@ -465,7 +476,8 @@ document.querySelectorAll('.tool').forEach(button => {
   button.oncontextmenu = (e) => e.preventDefault();
 
   button.addEventListener('pointerdown', (e) => {
-    const selectedTool = e.currentTarget.dataset.tool;
+    const targetBtn = e.currentTarget; // Hard lock the button instance
+    const selectedTool = targetBtn.dataset.tool;
     if (!selectedTool) return;
 
     if (['sticky', 'image', 'text'].includes(selectedTool)) {
@@ -481,8 +493,10 @@ document.querySelectorAll('.tool').forEach(button => {
     if (tapCounts[selectedTool] === 1) {
       closePopovers();
       document.querySelectorAll('.tool[data-tool]').forEach(btn => btn.classList.remove('active'));
-      e.currentTarget.classList.add('active');
+      targetBtn.classList.add('active');
       currentTool = selectedTool;
+      currentColor = toolColors[currentTool] || '#000000';
+      currentSize = toolSizes[currentTool] || 4;
     } 
     // Tap 2: Open Size Slider
     else if (tapCounts[selectedTool] === 2) {
@@ -493,17 +507,15 @@ document.querySelectorAll('.tool').forEach(button => {
         sizePicker.value = toolSizes[currentTool];
         if (sizeValueDisplay) sizeValueDisplay.textContent = `${toolSizes[currentTool]}px`;
         updateSizePreview();
-        
-        // Use a tiny timeout to let the DOM calculate height before positioning
-        setTimeout(() => positionPopover(sizePopover, e.currentTarget), 10);
+        positionPopover(sizePopover, targetBtn);
       }
     } 
     // Tap 3: Open Color Palette
     else if (tapCounts[selectedTool] >= 3) {
-      if (selectedTool !== 'eraser') { // Eraser has no color
+      if (selectedTool !== 'eraser') { 
         if (sizePopover) sizePopover.classList.add('hidden');
         if (colorPopover) {
-          setTimeout(() => positionPopover(colorPopover, e.currentTarget), 10);
+          positionPopover(colorPopover, targetBtn);
         }
       }
       tapCounts[selectedTool] = 0; // reset
