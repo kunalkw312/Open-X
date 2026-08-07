@@ -38,6 +38,12 @@
       color: var(--tb-text) !important;
     }
 
+    /* Force square with rounded corners for native color pickers */
+    input[type="color"], 
+    input[type="color"]::-webkit-color-swatch {
+      border-radius: 8px !important;
+    }
+
     /* Multi-Tap Popover Base */
     .popover {
       position: fixed;
@@ -50,6 +56,7 @@
       align-items: center;
       padding: 16px;
       pointer-events: auto; /* Allows interacting with slider/buttons */
+      transform: translateX(-50%); /* Ensures it anchors exactly to the center */
     }
 
     /* The "V" Caret pointing down at the tool */
@@ -102,14 +109,14 @@
   <!-- Size Popover (Double Tap) -->
   <div id="size-popover" class="popover hidden">
     <div class="popover-arrow"></div>
-    <div class="size-preview" style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">
+    <div class="size-preview" style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; cursor: pointer;" title="Tap to open Color Palette">
       <div id="sizePreviewCircle" class="size-preview-circle" style="border-radius: 50%; flex-shrink: 0; transition: width 0.05s, height 0.05s, background-color 0.1s;"></div>
     </div>
     <input type="range" id="sizePicker" min="1" max="100" value="4" style="width: 140px; cursor: pointer;">
     <span id="sizeValue" style="font-size: 16px; font-weight: 700; margin-top: 8px; text-align: center;">4px</span>
   </div>
 
-  <!-- Color Popover (Triple Tap) -->
+  <!-- Color Popover (Triple Tap or Click Circle) -->
   <div id="color-popover" class="popover hidden">
     <div class="popover-arrow"></div>
     <div style="font-size: 12px; font-weight: 700; margin-bottom: 12px; color: var(--tb-text); text-transform: uppercase;">Tool Color</div>
@@ -162,6 +169,9 @@
 
     <!-- Actions, Save & More Menu -->
     <div class="tool-group">
+      
+      <!-- Native Color Picker (Acts as the rainbow picker for active tool) -->
+      <input type="color" id="colorPicker" value="#000000" title="Custom Rainbow Color" style="margin-right: 4px; width: 28px; height: 28px; border: none; cursor: pointer;">
       
       <button id="btnUndo" class="tool" title="Undo">
         <svg viewBox="0 0 24 24"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
@@ -217,7 +227,7 @@
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; padding: 0 4px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--tb-text);">Custom Color:</span>
-            <input type="color" id="bg-custom" value="#ffffff" style="border:none; width: 28px; height: 28px; border-radius: 8px; cursor: pointer;">
+            <input type="color" id="bg-custom" value="#ffffff" style="border:none; width: 28px; height: 28px; cursor: pointer;">
           </div>
           
           <div class="menu-section-title" style="margin-top: 12px;">Pattern Overlay</div>
