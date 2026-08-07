@@ -1,18 +1,6 @@
-// --- GHOST CACHE KILLER ---
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-    for (let registration of registrations) {
-      registration.unregister();
-    }
-  });
-}
-
-// --- CONFIGURATION & SETTINGS ---
+// --- CONFIGURATION & CONSTANTS ---
 const PALM_ERASER_RADIUS = 50; 
 const CLUSTER_PROXIMITY_RADIUS = 75; 
-
-let currentBgColor = '#ffffff'; // Default to White
-let currentPattern = 'plain';   // 'plain' or 'grid'
 
 // --- CANVAS SETUP (TRI-LAYER ARCHITECTURE) ---
 const canvas = document.getElementById('board');
@@ -43,32 +31,44 @@ draftCanvas.style.pointerEvents = 'none';
 canvas.parentNode.appendChild(draftCanvas);
 const draftCtx = draftCanvas.getContext('2d');
 
-// --- BACKGROUND RENDER ENGINE ---
-function drawBackground(targetCtx, width, height, scale = 1) {
-  targetCtx.save();
-  targetCtx.setTransform(1, 0, 0, 1, 0, 0);
-  targetCtx.fillStyle = currentBgColor;
-  targetCtx.fillRect(0, 0, width, height);
+// --- STATE MANAGEMENT ---
+let currentTool = 'pen';
+let currentColor = '#000000';
+let currentSize = 4;
 
-  if (currentPattern === 'grid') {
-    // Auto-adjust grid line color based on background darkness
-    const isDarkBg = (currentBgColor === '#1e1e1e' || currentBgColor === '#000000' || currentBgColor === '#2d5a27');
-    targetCtx.strokeStyle = isDarkBg ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)';
-    targetCtx.lineWidth = 1 * scale;
-    const gridSize = 40 * scale;
-    
-    targetCtx.beginPath();
-    for (let x = 0; x < width; x += gridSize) {
-      targetCtx.moveTo(x, 0);
-      targetCtx.lineTo(x, height);
-    }
-    for (let y = 0; y < height; y += gridSize) {
-      targetCtx.moveTo(0, y);
-      targetCtx.lineTo(width, y);
-    }
-    targetCtx.stroke();
-  }
-  targetCtx.restore();
+let currentBgColor = '#ffffff'; // Default Whiteboard
+let currentBgPattern = 'plain'; // 'plain', 'grid', 'lines'
+
+let shapes = []; 
+let selectedShapes = [];
+let isDragging = false;
+let isResizing = false;
+let resizeShape = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let lassoBox = null;
+
+const activePointers = new Map(); 
+const activeErasers = new Map(); 
+
+let undoStack = [];
+let redoStack = [];
+let needsDraftRender = false;
+
+// --- PAGE MANAGEMENT ---
+let pagesData = [
+  { shapes: [], undoStack: [], redoStack: [], bgColor: '#ffffff', bgPattern: 'plain' }
+];
+let currentPageIndex = 0;
+
+// --- HELPER: COLOR CONTRAST DETECTION ---
+function isColorDark(hex) {
+  let c = hex.replace('#', '');
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  const r = parseInt(c.substring(0, 2), 16) || 0;
+  const g = parseInt(c.substring(2, 4), 16) || 0;
+  const b = parseInt(c.substring(4, 6), 16) || 0;
+  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
 }
 
 // --- DYNAMIC UI INJECTIONS ---
@@ -80,6 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
     pageDisplay.style.minWidth = '40px';
   }
 
+  // Loader Modal
   const loader = document.createElement('div');
   loader.id = 'export-loader';
   loader.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:999999;display:none;justify-content:center;align-items:center;color:white;font-size:24px;font-weight:bold;backdrop-filter:blur(4px);flex-direction:column;';
@@ -90,6 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
   `;
   document.body.appendChild(loader);
 
+  // Page Picker Modal
   const modalOverlay = document.createElement('div');
   modalOverlay.id = 'page-picker-modal';
   modalOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:999998;display:none;justify-content:center;align-items:center;backdrop-filter:blur(4px);';
@@ -98,7 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div style="padding:20px 24px; border-bottom:1px solid #e0e4e8; display:flex; justify-content:space-between; align-items:center; background:#ffffff;">
         <h2 style="margin:0; font-size:22px; color:#1e293b; font-weight:700;">Select Pages to Export</h2>
         <div style="display:flex; gap:12px; align-items:center;">
-          <button id="selectAllBtn" style="padding:8px 16px; background:#f0f4f8; border:1px solid #e0e4e8; border-radius:8px; cursor:pointer; font-weight:600; color:#5d35ff; font-family:inherit;">Select All / None</button>
+          <button id="selectAllBtn" style="padding:8px 16px; background:#f0f4f8; border:1px solid #e0e4e8; border-radius:8px; cursor:pointer; font-weight:600; color:#6E3AFF; font-family:inherit;">Select All / None</button>
           <button id="closeModalBtn" style="background:none; border:none; font-size:32px; cursor:pointer; color:#94a3b8; line-height:1; padding:0; height:32px; width:32px; display:flex; align-items:center; justify-content:center;">&times;</button>
         </div>
       </div>
@@ -106,7 +108,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div style="padding:20px 24px; border-top:1px solid #e0e4e8; display:flex; justify-content:flex-end; gap:12px; background:#ffffff;">
         <button id="cancelExportBtn" style="padding:12px 24px; border:1px solid #cbd5e1; background:white; border-radius:10px; cursor:pointer; font-weight:600; color:#64748b; font-family:inherit; font-size:15px;">Cancel</button>
-        <button id="confirmExportBtn" style="padding:12px 32px; border:none; background:#5d35ff; border-radius:10px; cursor:pointer; font-weight:600; color:white; font-family:inherit; font-size:15px; box-shadow:0 4px 12px rgba(93, 53, 255, 0.3);">Export Selected</button>
+        <button id="confirmExportBtn" style="padding:12px 32px; border:none; background:#6E3AFF; border-radius:10px; cursor:pointer; font-weight:600; color:white; font-family:inherit; font-size:15px; box-shadow:0 4px 12px rgba(110, 58, 255, 0.3);">Export Selected</button>
       </div>
     </div>
   `;
@@ -126,34 +128,61 @@ document.addEventListener("DOMContentLoaded", () => {
     closePagePicker();
     if(callback) callback(selectedIndices);
   };
+
+  bindSettingsMenuEvents();
 });
 
-// --- STATE MANAGEMENT ---
-let currentTool = 'pen';
-let currentColor = '#000000';
-let currentSize = 4;
+// --- SETTINGS & BACKGROUND SELECTION EVENT LISTENERS ---
+function setBoardBackground(color, pattern = currentBgPattern, autoAdjustPen = true) {
+  currentBgColor = color;
+  currentBgPattern = pattern;
+  
+  // Auto-switch pen color if contrast is lost (e.g. black pen on black/green board)
+  if (autoAdjustPen) {
+    const darkBg = isColorDark(currentBgColor);
+    if (darkBg && currentColor === '#000000') {
+      currentColor = '#ffffff';
+      if (colorPicker) colorPicker.value = '#ffffff';
+    } else if (!darkBg && currentColor === '#ffffff') {
+      currentColor = '#000000';
+      if (colorPicker) colorPicker.value = '#000000';
+    }
+  }
 
-let shapes = []; 
-let selectedShapes = [];
-let isDragging = false;
-let isResizing = false;
-let resizeShape = null;
-let dragStartX = 0;
-let dragStartY = 0;
-let lassoBox = null;
+  syncCurrentPage();
+  redrawBoard();
+}
 
-const activePointers = new Map(); 
-const activeErasers = new Map(); 
+function bindSettingsMenuEvents() {
+  const btnSettings = document.getElementById('btnSettings');
+  const settingsDropdown = document.getElementById('settingsDropdown');
 
-let undoStack = [];
-let redoStack = [];
+  if (btnSettings && settingsDropdown) {
+    btnSettings.addEventListener('click', (e) => {
+      e.stopPropagation();
+      settingsDropdown.classList.toggle('hidden');
+    });
+    window.addEventListener('click', () => settingsDropdown.classList.add('hidden'));
+    settingsDropdown.addEventListener('click', (e) => e.stopPropagation());
+  }
 
-let needsDraftRender = false;
+  // 3 Main Background Color Presets
+  document.getElementById('bgPresetGreen')?.addEventListener('click', () => setBoardBackground('#0a5c36'));
+  document.getElementById('bgPresetBlack')?.addEventListener('click', () => setBoardBackground('#121212'));
+  document.getElementById('bgPresetWhite')?.addEventListener('click', () => setBoardBackground('#ffffff'));
 
-// --- PAGE MANAGEMENT ---
-let pagesData = [{ shapes: [], undoStack: [], redoStack: [] }];
-let currentPageIndex = 0;
+  // Custom Color Picker
+  document.getElementById('bgColorCustom')?.addEventListener('input', (e) => {
+    setBoardBackground(e.target.value);
+  });
 
+  // Grid / Line Presets
+  document.getElementById('patternPresetPlain')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'plain', false));
+  document.getElementById('patternPresetGrid')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'grid', false));
+  document.getElementById('patternPresetLines')?.addEventListener('click', () => setBoardBackground(currentBgColor, 'lines', false));
+}
+
+// --- CANVAS DISPLAY ADJUSTMENT ---
 function handleScreenAutoAdjust() {
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
@@ -194,9 +223,13 @@ function getCoordinates(clientX, clientY) {
 }
 
 function syncCurrentPage() {
-  pagesData[currentPageIndex].shapes = JSON.parse(JSON.stringify(shapes));
-  pagesData[currentPageIndex].undoStack = [...undoStack];
-  pagesData[currentPageIndex].redoStack = [...redoStack];
+  pagesData[currentPageIndex] = {
+    shapes: JSON.parse(JSON.stringify(shapes)),
+    undoStack: [...undoStack],
+    redoStack: [...redoStack],
+    bgColor: currentBgColor,
+    bgPattern: currentBgPattern
+  };
 }
 
 function loadPage(index) {
@@ -206,6 +239,8 @@ function loadPage(index) {
   shapes = JSON.parse(JSON.stringify(pagesData[currentPageIndex].shapes));
   undoStack = [...pagesData[currentPageIndex].undoStack];
   redoStack = [...pagesData[currentPageIndex].redoStack];
+  currentBgColor = pagesData[currentPageIndex].bgColor || '#ffffff';
+  currentBgPattern = pagesData[currentPageIndex].bgPattern || 'plain';
   
   redrawBoard();
   updatePaginationUI();
@@ -230,7 +265,13 @@ function updatePaginationUI() {
 
 document.getElementById('btnAddPage')?.addEventListener('click', () => {
   syncCurrentPage();
-  pagesData.push({ shapes: [], undoStack: [], redoStack: [] });
+  pagesData.push({ 
+    shapes: [], 
+    undoStack: [], 
+    redoStack: [], 
+    bgColor: currentBgColor, 
+    bgPattern: currentBgPattern 
+  });
   currentPageIndex = pagesData.length - 1;
   
   shapes = [];
@@ -249,7 +290,7 @@ document.getElementById('btnNextPage')?.addEventListener('click', () => {
   if (currentPageIndex < pagesData.length - 1) loadPage(currentPageIndex + 1);
 });
 
-// --- UI LISTENERS (Including New Settings Menu) ---
+// --- UI LISTENERS ---
 const sizePopover = document.getElementById('size-popover');
 const sizeValueDisplay = document.getElementById('sizeValue');
 const sizePreviewCircle = document.getElementById('sizePreviewCircle');
@@ -314,46 +355,16 @@ document.getElementById('btnClear')?.addEventListener('click', () => {
   redrawBoard();
 });
 
-// Settings & Export Menus Toggle
 const btnMainExport = document.getElementById('btnMainExport');
 const exportDropdownMenu = document.getElementById('exportDropdownMenu');
-const btnSettings = document.getElementById('btnSettings');
-const settingsMenu = document.getElementById('settingsMenu');
 
 if (btnMainExport && exportDropdownMenu) {
   btnMainExport.addEventListener('click', (e) => {
     e.stopPropagation();
     exportDropdownMenu.classList.toggle('hidden');
-    if (settingsMenu) settingsMenu.classList.add('hidden');
   });
+  window.addEventListener('click', () => exportDropdownMenu.classList.add('hidden'));
 }
-
-if (btnSettings && settingsMenu) {
-  btnSettings.addEventListener('click', (e) => {
-    e.stopPropagation();
-    settingsMenu.classList.toggle('hidden');
-    if (exportDropdownMenu) exportDropdownMenu.classList.add('hidden');
-  });
-}
-
-window.addEventListener('click', () => {
-  if (exportDropdownMenu) exportDropdownMenu.classList.add('hidden');
-  if (settingsMenu) settingsMenu.classList.add('hidden');
-});
-
-// Board Preferences Listeners
-document.getElementById('btnBgWhite')?.addEventListener('click', () => { currentBgColor = '#ffffff'; redrawBoard(); });
-document.getElementById('btnBgBlack')?.addEventListener('click', () => { currentBgColor = '#1e1e1e'; redrawBoard(); });
-document.getElementById('btnBgGreen')?.addEventListener('click', () => { currentBgColor = '#2d5a27'; redrawBoard(); });
-
-document.getElementById('customBgPicker')?.addEventListener('input', (e) => {
-  currentBgColor = e.target.value;
-  redrawBoard();
-});
-
-document.getElementById('btnPatternPlain')?.addEventListener('click', () => { currentPattern = 'plain'; redrawBoard(); });
-document.getElementById('btnPatternGrid')?.addEventListener('click', () => { currentPattern = 'grid'; redrawBoard(); });
-
 
 // --- IMAGE IMPORT HANDLER ---
 const imageInput = document.getElementById('imageInput');
@@ -386,11 +397,50 @@ if (imageInput) {
   });
 }
 
-// --- UNIVERSAL OFFSCREEN RENDERER (For PDFs & Thumbnails) ---
-function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, height) {
+// --- BACKGROUND RENDER ENGINE ---
+function drawBackgroundPattern(targetCtx, width, height, bgColor, bgPattern) {
   targetCtx.save();
-  // Apply Background Color & Pattern to Exports
-  drawBackground(targetCtx, width, height, scaleMultiplier);
+  targetCtx.fillStyle = bgColor;
+  targetCtx.fillRect(0, 0, width, height);
+
+  const dark = isColorDark(bgColor);
+  const patternColor = dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+  
+  targetCtx.strokeStyle = patternColor;
+  targetCtx.lineWidth = 1;
+
+  if (bgPattern === 'grid') {
+    const step = 40;
+    targetCtx.beginPath();
+    for (let x = step; x < width; x += step) {
+      targetCtx.moveTo(x, 0);
+      targetCtx.lineTo(x, height);
+    }
+    for (let y = step; y < height; y += step) {
+      targetCtx.moveTo(0, y);
+      targetCtx.lineTo(width, y);
+    }
+    targetCtx.stroke();
+  } else if (bgPattern === 'lines') {
+    const step = 40;
+    targetCtx.beginPath();
+    for (let y = step; y < height; y += step) {
+      targetCtx.moveTo(0, y);
+      targetCtx.lineTo(width, y);
+    }
+    targetCtx.stroke();
+  }
+  targetCtx.restore();
+}
+
+// --- UNIVERSAL OFFSCREEN RENDERER (For PDFs & Thumbnails) ---
+function renderShapesToCanvas(targetCtx, pageDataObj, scaleMultiplier, width, height) {
+  const pageShapes = pageDataObj.shapes || pageDataObj;
+  const pageBgColor = pageDataObj.bgColor || '#ffffff';
+  const pageBgPattern = pageDataObj.bgPattern || 'plain';
+
+  targetCtx.save();
+  drawBackgroundPattern(targetCtx, width, height, pageBgColor, pageBgPattern);
   targetCtx.scale(scaleMultiplier, scaleMultiplier);
   
   pageShapes.forEach(stroke => {
@@ -458,7 +508,7 @@ function renderShapesToCanvas(targetCtx, pageShapes, scaleMultiplier, width, hei
   targetCtx.restore();
 }
 
-function generatePageImage(pageShapes, scaleForThumb = 0.15, quality = 0.75) {
+function generatePageImage(pageDataObj, scaleForThumb = 0.15, quality = 0.75) {
   const cssW = window.innerWidth;
   const cssH = window.innerHeight;
   const physicalW = cssW * scaleForThumb;
@@ -469,7 +519,7 @@ function generatePageImage(pageShapes, scaleForThumb = 0.15, quality = 0.75) {
   tempCanvas.height = physicalH;
   const tCtx = tempCanvas.getContext('2d');
   
-  renderShapesToCanvas(tCtx, pageShapes, scaleForThumb, physicalW, physicalH);
+  renderShapesToCanvas(tCtx, pageDataObj, scaleForThumb, physicalW, physicalH);
   return tempCanvas.toDataURL('image/jpeg', quality);
 }
 
@@ -485,17 +535,17 @@ function openPagePicker(callback) {
   grid.innerHTML = '';
   
   pagesData.forEach((page, index) => {
-    const thumbUrl = generatePageImage(page.shapes, 0.15, 0.5); 
+    const thumbUrl = generatePageImage(page, 0.15, 0.5); 
     
     const card = document.createElement('div');
     card.className = 'page-card selected'; 
     card.dataset.index = index;
-    card.style.cssText = 'border:3px solid #5d35ff; border-radius:12px; background:white; cursor:pointer; overflow:hidden; position:relative; box-shadow:0 4px 12px rgba(0,0,0,0.08); transition:transform 0.1s;';
+    card.style.cssText = 'border:3px solid #6E3AFF; border-radius:12px; background:white; cursor:pointer; overflow:hidden; position:relative; box-shadow:0 4px 12px rgba(0,0,0,0.08); transition:transform 0.1s;';
     
     card.innerHTML = `
       <div style="padding:10px 14px; background:#f0f4f8; border-bottom:1px solid #e0e4e8; font-size:14px; font-weight:700; color:#334155; display:flex; justify-content:space-between; align-items:center;">
         <span>Page ${index + 1}</span>
-        <div class="check-icon" style="height:20px; width:20px; background:#5d35ff; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px;">✓</div>
+        <div class="check-icon" style="height:20px; width:20px; background:#6E3AFF; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px;">✓</div>
       </div>
       <div style="height:140px; width:100%; display:flex; justify-content:center; align-items:center; background:#e2e8f0; position:relative;">
         <img src="${thumbUrl}" style="max-width:100%; max-height:100%; object-fit:contain; pointer-events:none;" />
@@ -505,8 +555,8 @@ function openPagePicker(callback) {
     card.addEventListener('click', () => {
       card.classList.toggle('selected');
       if (card.classList.contains('selected')) {
-        card.style.borderColor = '#5d35ff';
-        card.querySelector('.check-icon').style.background = '#5d35ff';
+        card.style.borderColor = '#6E3AFF';
+        card.querySelector('.check-icon').style.background = '#6E3AFF';
         card.querySelector('.check-icon').style.color = 'white';
       } else {
         card.style.borderColor = 'transparent';
@@ -529,8 +579,8 @@ function openPagePicker(callback) {
          card.querySelector('.check-icon').style.color = 'transparent';
        } else {
          card.classList.add('selected');
-         card.style.borderColor = '#5d35ff';
-         card.querySelector('.check-icon').style.background = '#5d35ff';
+         card.style.borderColor = '#6E3AFF';
+         card.querySelector('.check-icon').style.background = '#6E3AFF';
          card.querySelector('.check-icon').style.color = 'white';
        }
     });
@@ -544,7 +594,7 @@ function closePagePicker() {
   pendingExportCallback = null;
 }
 
-// --- EXPORT SAVING ---
+// --- EXPORT & FILE SAVING ---
 function downloadFile(filename, content) {
   const blob = new Blob([content], { type: 'application/octet-stream' });
   const link = document.createElement('a');
@@ -559,10 +609,13 @@ document.getElementById('btnSaveCurrent')?.addEventListener('click', () => {
   if (!fileName.endsWith('.oxsb')) fileName += '.oxsb';
 
   syncCurrentPage();
+  const page = pagesData[currentPageIndex];
   const singlePageData = {
-    version: "1.1",
+    version: "1.2",
     pages: [{
-      shapes: pagesData[currentPageIndex].shapes.map(s => {
+      bgColor: page.bgColor,
+      bgPattern: page.bgPattern,
+      shapes: page.shapes.map(s => {
         if (s.tool === 'image') return { ...s, imgObj: null };
         return s;
       })
@@ -578,13 +631,15 @@ document.getElementById('btnSaveAll')?.addEventListener('click', () => {
     if (!fileName.endsWith('.oxsb')) fileName += '.oxsb';
 
     const exportPages = exportIndices.map(idx => ({
+      bgColor: pagesData[idx].bgColor,
+      bgPattern: pagesData[idx].bgPattern,
       shapes: pagesData[idx].shapes.map(s => {
         if (s.tool === 'image') return { ...s, imgObj: null };
         return s;
       })
     }));
 
-    downloadFile(fileName, JSON.stringify({ version: "1.1", pages: exportPages }));
+    downloadFile(fileName, JSON.stringify({ version: "1.2", pages: exportPages }));
   });
 });
 
@@ -602,6 +657,8 @@ if (btnOpenDoc && projectInput) {
         const data = JSON.parse(event.target.result);
         if (data.pages && Array.isArray(data.pages)) {
           pagesData = data.pages.map(p => ({
+            bgColor: p.bgColor || '#ffffff',
+            bgPattern: p.bgPattern || 'plain',
             shapes: p.shapes.map(s => {
               if (s.tool === 'image' && s.imgSrc) {
                 const img = new Image();
@@ -658,8 +715,8 @@ document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
         const tCtx = tempCanvas.getContext('2d');
 
         exportIndices.forEach((pageIdx, step) => {
-          renderShapesToCanvas(tCtx, pagesData[pageIdx].shapes, exportScale, exportWidth, exportHeight);
-          const imgData = tempCanvas.toDataURL('image/jpeg', 0.7);
+          renderShapesToCanvas(tCtx, pagesData[pageIdx], exportScale, exportWidth, exportHeight);
+          const imgData = tempCanvas.toDataURL('image/jpeg', 0.85);
           if (step > 0) pdf.addPage([exportWidth, exportHeight], 'landscape');
           pdf.addImage(imgData, 'JPEG', 0, 0, exportWidth, exportHeight);
         });
@@ -668,7 +725,7 @@ document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
 
       } catch (error) {
         console.error("PDF Export failed:", error);
-        alert("An error occurred. The board might be too large for the device memory.");
+        alert("An error occurred during PDF export.");
       } finally {
         if(loader) loader.style.display = 'none';
       }
@@ -676,7 +733,7 @@ document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
   });
 });
 
-// --- DATA-DRIVEN UNDO / REDO ---
+// --- UNDO / REDO ---
 function saveState() {
   undoStack.push(JSON.parse(JSON.stringify(shapes.map(s => {
     if (s.tool === 'image') return { ...s, imgObj: null }; 
@@ -716,7 +773,7 @@ document.getElementById('btnRedo')?.addEventListener('click', () => {
   }
 });
 
-// --- MULTI-TOUCH CLUSTER ENGINE (N-FINGER DETECTION) ---
+// --- MULTI-TOUCH CLUSTER ENGINE ---
 function getClusters(pointersMap, radius) {
   const pointers = Array.from(pointersMap.entries()).map(([id, data]) => {
     const lastPt = data.points[data.points.length - 1];
@@ -770,7 +827,6 @@ function processEraserClusters() {
       }
       eStroke.points.push({ x: cx, y: cy });
       
-      // Target live INK canvas for pristine true erasing
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
@@ -876,9 +932,16 @@ function getShapeAtPosition(x, y) {
 
 // --- TRI-LAYER SCREEN REDRAW ---
 function redrawBoard() {
-  // Clear and Re-draw custom Background logic
+  const w = bgCanvas.width / (window.devicePixelRatio || 1);
+  const h = bgCanvas.height / (window.devicePixelRatio || 1);
+
+  bgCtx.save();
+  bgCtx.setTransform(1, 0, 0, 1, 0, 0);
   bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-  drawBackground(bgCtx, bgCanvas.width, bgCanvas.height);
+  bgCtx.restore();
+
+  // Render Page Background Color & Pattern
+  drawBackgroundPattern(bgCtx, w, h, currentBgColor, currentBgPattern);
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -936,10 +999,10 @@ function redrawBoard() {
     }
   });
 
-  // UI OVERLAYS
+  // SELECTION OVERLAYS
   selectedShapes.forEach(stroke => {
     ctx.save();
-    ctx.strokeStyle = '#5d35ff'; 
+    ctx.strokeStyle = '#6E3AFF'; 
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 6]);
     let hx = 0, hy = 0;
@@ -980,7 +1043,7 @@ function redrawBoard() {
 
   if (lassoBox) {
     ctx.save();
-    ctx.strokeStyle = '#5d35ff';
+    ctx.strokeStyle = '#6E3AFF';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(lassoBox.x, lassoBox.y, lassoBox.w, lassoBox.h);
@@ -1043,7 +1106,7 @@ function renderDraftLayer() {
 }
 requestAnimationFrame(renderDraftLayer);
 
-// --- POINTER LISTENERS & SELECT MODE ---
+// --- POINTER LISTENERS ---
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const coords = getCoordinates(e.clientX, e.clientY);
